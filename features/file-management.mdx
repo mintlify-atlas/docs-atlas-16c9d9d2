@@ -1,0 +1,289 @@
+---
+title: File Management
+description: Learn how to navigate, organize, and manage your notes with the file tree interface
+---
+
+The file tree sidebar provides a complete file management system for organizing your notes. It supports hierarchical folder structures, drag-free organization, and powerful keyboard navigation.
+
+## File Tree Interface
+
+The file tree appears in the left sidebar and displays your entire note collection in a hierarchical structure.
+
+### Tree Navigation
+
+Navigate through your files using either mouse or keyboard:
+
+<Tabs>
+  <Tab title="Mouse Navigation">
+    - **Click** on a file name to open it in the editor
+    - **Click** the chevron icon next to folders to expand/collapse
+    - **Hover** over folders to reveal quick action buttons
+    - **Right-click** anywhere to open the context menu
+  </Tab>
+  <Tab title="Keyboard Navigation">
+    ```
+    ↑ / ↓     Navigate up and down
+    ← / →     Collapse/expand folders or move to parent
+    Enter     Open file or toggle folder
+    ```
+    
+    The file tree maintains focus state, showing which item is currently active with a highlighted background.
+  </Tab>
+</Tabs>
+
+### Search and Filter
+
+Use the search box at the top of the file tree to quickly find files:
+
+```typescript
+// Search is debounced by 200ms for performance
+// File tree in: components/file-tree/index.tsx:47-50
+const [query, setQuery] = useState("");
+const debouncedQuery = useDebouncedValueHook(query, 200);
+const normalizedQuery = debouncedQuery.trim().toLowerCase();
+```
+
+<Note>
+  Search matches file and folder names. Folders with matching children are automatically expanded to show results.
+</Note>
+
+The filter logic matches names and shows parent folders:
+- Matches the file/folder name itself
+- Shows folders containing matching children
+- Automatically expands matching folder hierarchies
+
+## Context Menu Actions
+
+Right-click on any file or folder to access these actions:
+
+<AccordionGroup>
+  <Accordion title="File Actions" icon="file">
+    **Open** - Opens the file in the editor (Enter)
+    
+    **Download** - Downloads the file to your computer (⌘S)
+    
+    **Rename** - Rename the file (F2)
+    
+    **Move** - Move to a different folder (⇧⌘M)
+    
+    **Delete** - Permanently delete the file (⌘⌫)
+  </Accordion>
+  
+  <Accordion title="Folder Actions" icon="folder">
+    **Open** - Expand or collapse the folder (Enter)
+    
+    **New File** - Create a new file in this folder (⌘N)
+    
+    **New Folder** - Create a subfolder (⇧⌘N)
+    
+    **Rename** - Rename the folder (F2)
+    
+    **Move** - Move folder to a different location (⇧⌘M)
+    
+    **Delete** - Delete folder and all contents (⌘⌫)
+  </Accordion>
+</AccordionGroup>
+
+## Hover Actions
+
+When you hover over a folder, quick action buttons appear on the right:
+
+```tsx
+// Hover actions appear with smooth transitions
+// File tree in: components/file-tree/tree-nodes.tsx:213-219
+<div className={cn(
+  "absolute right-0 inset-y-0 flex items-center",
+  "opacity-0 transition-opacity pointer-events-none",
+  "group-hover/folder:opacity-100 group-hover/folder:pointer-events-auto"
+)}>
+```
+
+<Tip>
+  The hover actions use a gradient fade effect to smoothly blend with the background, preventing visual jarring when they appear.
+</Tip>
+
+### Available Hover Actions
+
+| Icon | Action | Description |
+|------|--------|-------------|
+| <Icon icon="folder-plus" /> | New Folder | Create a subfolder inside this folder |
+| <Icon icon="file-plus" /> | New File | Create a new file inside this folder |
+
+## Keyboard Shortcuts
+
+All file tree operations have keyboard shortcuts:
+
+| Shortcut | Action | Context |
+|----------|--------|----------|
+| `↑` `↓` | Navigate up/down | File tree focused |
+| `←` `→` | Collapse/expand or navigate to parent | File tree focused |
+| `Enter` | Open file or toggle folder | File tree focused |
+| `F2` | Rename selected item | File tree focused |
+| `⌘N` | New file in current/selected folder | File tree focused |
+| `⇧⌘N` | New folder in current/selected folder | File tree focused |
+| `⇧⌘M` | Move selected item | File tree focused |
+| `⌘⌫` | Delete selected item | File tree focused |
+| `⌘S` | Download file | In context menu |
+
+<Note>
+  All keyboard shortcuts work when the file tree has focus. Click inside the tree or press Tab to focus it.
+</Note>
+
+## Creating Files and Folders
+
+Create new files and folders in multiple ways:
+
+<Tabs>
+  <Tab title="Toolbar Buttons">
+    Use the buttons at the top of the file tree:
+    - **Folder+** icon creates a new folder at the root level
+    - **File+** icon creates a new file at the root level
+  </Tab>
+  <Tab title="Context Menu">
+    Right-click on any folder and select:
+    - "New File" to create a file inside
+    - "New Folder" to create a subfolder
+  </Tab>
+  <Tab title="Hover Actions">
+    Hover over a folder to reveal quick action buttons:
+    - Click the folder icon to create a subfolder
+    - Click the file icon to create a new file
+  </Tab>
+  <Tab title="Keyboard">
+    With the file tree focused:
+    - Press `⌘N` for a new file
+    - Press `⇧⌘N` for a new folder
+    
+    The new item is created in the currently active folder or at the root.
+  </Tab>
+</Tabs>
+
+### File Naming
+
+When creating files:
+- Files automatically get a `.md` extension if not specified
+- File names are displayed without the `.md` extension in the tree
+- Special characters are validated to prevent invalid file names
+
+```typescript
+// Display logic removes .md extension
+// From: components/file-tree/tree-nodes.tsx:366
+const displayName = node.name.replace(/\.md$/i, "");
+```
+
+## File Operations
+
+### Renaming
+
+1. Select a file or folder
+2. Press `F2` or choose "Rename" from context menu
+3. Enter the new name
+4. Press Enter to confirm or Escape to cancel
+
+<Tip>
+  The rename dialog pre-fills the current name for easy editing.
+</Tip>
+
+### Moving Files
+
+Move files between folders using the Move dialog:
+
+1. Select the file/folder to move
+2. Press `⇧⌘M` or choose "Move" from context menu
+3. Select the destination folder from the tree
+4. Confirm the move
+
+### Deleting
+
+Delete files and folders:
+
+1. Select the item to delete
+2. Press `⌘⌫` or choose "Delete" from context menu
+3. Confirm the deletion in the dialog
+
+<Warning>
+  Deleting a folder removes all files and subfolders inside it. This action cannot be undone.
+</Warning>
+
+## Tree Controls
+
+The toolbar at the top provides global controls:
+
+### Refresh
+
+Click the refresh icon to reload the file tree from the server. Useful if files were added externally.
+
+```typescript
+// Refresh with loading state
+// From: components/file-tree/index.tsx:292-295
+<Button onClick={() => void refreshTree()}
+        disabled={refreshState !== "idle"}>
+  <RefreshCw className={refreshState !== "idle" ? "animate-spin" : ""} />
+</Button>
+```
+
+### Expand/Collapse All
+
+Click the expand/collapse icon to toggle all folders at once:
+- **Collapsed state**: Click to expand all folders
+- **Expanded state**: Click to collapse all folders
+
+## Visual Feedback
+
+### Selection States
+
+The file tree provides clear visual feedback:
+
+- **Selected file**: Highlighted with accent background color
+- **Active item**: Shows focus state when navigating with keyboard  
+- **Ancestor folders**: Bold text when containing the selected file
+- **Hover state**: Subtle background change on mouse over
+
+### Loading States
+
+When loading folders or refreshing:
+- Skeleton loaders appear for root-level items
+- Refresh button shows spinning animation
+- Empty folders display "Empty folder" placeholder text
+
+## File Tree Structure
+
+The file tree uses a hierarchical structure:
+
+```
+workspace/
+├── Projects/
+│   ├── Project A.md
+│   └── Project B.md
+├── Notes/
+│   ├── Meeting Notes/
+│   │   └── 2024-03-01.md
+│   └── Ideas.md
+└── Archive/
+    └── Old Notes.md
+```
+
+<Note>
+  Files are stored in S3 with a flat key structure like `Projects/Project A.md`. The tree view is built from the manifest for fast rendering.
+</Note>
+
+## Accessibility
+
+The file tree follows ARIA tree view patterns:
+
+```tsx
+// Accessibility attributes
+// From: components/file-tree/tree-nodes.tsx:196-201
+<button
+  role="treeitem"
+  aria-expanded={isOpen}
+  aria-selected={isActive}
+  aria-level={depth + 1}
+  aria-posinset={posInSet}
+  aria-setsize={setSize}
+>
+```
+
+- Keyboard navigation follows standard tree view patterns
+- Screen readers announce folder states and positions
+- Focus management ensures keyboard-only operation

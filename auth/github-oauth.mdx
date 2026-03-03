@@ -1,0 +1,370 @@
+---
+title: GitHub OAuth Configuration
+description: Set up GitHub as an OAuth provider for authentication
+---
+
+Personal Notes uses GitHub OAuth to authenticate users. This guide walks you through creating a GitHub OAuth app and configuring it in your application.
+
+## Create a GitHub OAuth App
+
+<Steps>
+  <Step title="Navigate to GitHub Settings">
+    Go to [GitHub Developer Settings](https://github.com/settings/developers) and click **OAuth Apps** → **New OAuth App**.
+  </Step>
+  
+  <Step title="Configure application details">
+    Fill in the application information:
+    
+    | Field | Value |
+    |-------|-------|
+    | Application name | Personal Notes (or your app name) |
+    | Homepage URL | `http://localhost:3000` (dev) or your production URL |
+    | Authorization callback URL | `http://localhost:3000/api/auth/callback/github` |
+    
+    <Note>
+      For production, use your actual domain: `https://yourdomain.com/api/auth/callback/github`
+    </Note>
+  </Step>
+  
+  <Step title="Get credentials">
+    After creating the app, copy the **Client ID** and generate a **Client Secret**.
+    
+    <Warning>
+      Save the client secret immediately. GitHub only shows it once.
+    </Warning>
+  </Step>
+</Steps>
+
+## Environment Variables
+
+Add the GitHub OAuth credentials to your `.env` file:
+
+```bash
+GH_CLIENT_ID=your_github_client_id
+GH_CLIENT_SECRET=your_github_client_secret
+GH_ALLOWED_LOGIN=your_github_username
+```
+
+### `GH_ALLOWED_LOGIN`
+
+This restricts access to a single GitHub user. Set it to your GitHub username (lowercase):
+
+```bash
+GH_ALLOWED_LOGIN=octocat
+```
+
+Users with any other username will be denied access after authentication.
+
+<Warning>
+  The `GH_ALLOWED_LOGIN` check is **case-insensitive** and matches against both the GitHub username and email. Make sure to use the correct value.
+</Warning>
+
+### Bypass Access Control (Dev Only)
+
+To allow all GitHub users (insecure, for development only):
+
+```bash
+AUTH_INSECURE_ALLOW_ALL=true
+```
+
+<Warning>
+  **Never** set `AUTH_INSECURE_ALLOW_ALL=true` in production. This disables all access control.
+</Warning>
+
+## BetterAuth Configuration
+
+GitHub OAuth is configured in the BetterAuth instance.
+
+From `lib/auth/betterauth.ts:34`:
+
+```typescript
+import { betterAuth } from "better-auth";
+
+export const auth = betterAuth({
+  // ... other config
+  socialProviders: {
+    github: {
+      clientId: process.env.GH_CLIENT_ID,
+      clientSecret: process.env.GH_CLIENT_SECRET,
+    },
+  },
+});
+```
+
+BetterAuth automatically handles:
+- OAuth flow initiation
+- Callback handling
+- Token exchange
+- User profile retrieval
+- Session creation
+
+## OAuth Flow
+
+The authentication flow follows the standard OAuth 2.0 pattern:
+
+<Steps>
+  <Step title="User clicks 'Sign in with GitHub'">
+    The user is redirected to:
+    ```
+    /api/auth/signin/github
+    ```
+  </Step>
+  
+  <Step title="Redirect to GitHub">
+    BetterAuth redirects to GitHub's authorization page:
+    ```
+    https://github.com/login/oauth/authorize
+      ?client_id=YOUR_CLIENT_ID
+      &redirect_uri=YOUR_CALLBACK_URL
+      &scope=user:email
+    ```
+  </Step>
+  
+  <Step title="User authorizes">
+    The user approves the OAuth request on GitHub.
+  </Step>
+  
+  <Step title="GitHub callback">
+    GitHub redirects back to:
+    ```
+    /api/auth/callback/github?code=AUTH_CODE
+    ```
+  </Step>
+  
+  <Step title="Token exchange">
+    BetterAuth exchanges the authorization code for an access token.
+  </Step>
+  
+  <Step title="Fetch user profile">
+    BetterAuth fetches the user's GitHub profile and email.
+  </Step>
+  
+  <Step title="Access control check">
+    The app checks if the user is allowed via `isAllowedUser()`:
+    ```typescript
+    if (!isAllowedUser(session)) {
+      // Redirect to access denied page
+    }
+    ```
+  </Step>
+  
+  <Step title="Create session">
+    BetterAuth creates a session and stores it in the database.
+  </Step>
+  
+  <Step title="Redirect to app">
+    The user is redirected to `/files` (the main app).
+  </Step>
+</Steps>
+
+## Access Control Implementation
+
+Access control is enforced in `lib/auth/betterauth.ts`.
+
+### Configuration
+
+From `lib/auth/betterauth.ts:58`:
+
+```typescript
+const ALLOWED_LOGIN = (process.env.GH_ALLOWED_LOGIN || "")
+  .trim()
+  .toLowerCase();
+
+const INSECURE_ALLOW_ALL = process.env.AUTH_INSECURE_ALLOW_ALL === "true";
+```
+
+### User Validation
+
+The `isAllowedUser` function checks if a user is authorized:
+
+```typescript
+export function isAllowedUser(session: SessionLike): boolean {
+  // Allow all if insecure mode enabled
+  if (INSECURE_ALLOW_ALL) return true;
+  
+  // Deny all if no allowed login configured
+  if (!ALLOWED_LOGIN) return false;
+  
+  // Get username and email from session
+  const { username, email } = getUserCandidates(session);
+  
+  // Match against allowed login (case-insensitive)
+  return username === ALLOWED_LOGIN || email === ALLOWED_LOGIN;
+}
+```
+
+### Extract User Identifiers
+
+From `lib/auth/betterauth.ts:85`:
+
+```typescript
+function getUserCandidates(session: SessionLike) {
+  const user = session?.user ?? {};
+  
+  // Extract username (or login field)
+  const usernameField = user.username ?? user.login;
+  const username = normalizeCandidate(usernameField);
+  
+  // Extract email
+  const email = normalizeCandidate(user.email);
+  
+  return { username, email };
+}
+
+function normalizeCandidate(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  
+  const trimmed = value.trim();
+  return trimmed ? trimmed.toLowerCase() : null;
+}
+```
+
+## Sign-In Page
+
+The sign-in page is located at `/auth/sign-in` and rendered by `app/auth/sign-in/page.tsx`.
+
+Users are automatically redirected to the sign-in page if they try to access protected routes without authentication.
+
+## Protected API Routes
+
+Protect API routes using `requireApiUser`:
+
+```typescript
+import { requireApiUser } from "@/lib/auth";
+import { NextRequest } from "next/server";
+
+export async function POST(request: NextRequest) {
+  const authRes = await requireApiUser(request);
+  
+  if (!authRes.ok) {
+    return Response.json(
+      { error: authRes.error },
+      { status: authRes.status }
+    );
+  }
+  
+  // User is authenticated and authorized
+  const { session } = authRes;
+  
+  // Your protected logic here
+}
+```
+
+This ensures:
+1. User is authenticated (has a valid session)
+2. User matches `GH_ALLOWED_LOGIN` or `AUTH_INSECURE_ALLOW_ALL` is enabled
+
+## Session Data
+
+The session object returned by `getApiSession` or `getServerSession` contains:
+
+```typescript
+interface Session {
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    image?: string;
+    username?: string;
+    login?: string;
+  };
+  session: {
+    id: string;
+    userId: string;
+    expiresAt: number;
+    token: string;
+  };
+}
+```
+
+## Error Handling
+
+### Authentication Errors
+
+BetterAuth redirects authentication errors to `/auth/error`.
+
+From `lib/auth/betterauth.ts:40`:
+
+```typescript
+onAPIError: {
+  errorURL: "/auth/error",
+}
+```
+
+### Access Denied
+
+If a user authenticates but isn't in the allowlist, they receive a 403 response:
+
+```typescript
+if (!isAllowedUser(session)) {
+  return {
+    ok: false,
+    status: 403,
+    error: "Access denied"
+  };
+}
+```
+
+## Troubleshooting
+
+### "Missing GH_CLIENT_ID"
+
+**Cause**: The `GH_CLIENT_ID` environment variable is not set.
+
+**Solution**: Add it to your `.env` file and restart the dev server.
+
+### "Access denied" after sign-in
+
+**Cause**: Your GitHub username doesn't match `GH_ALLOWED_LOGIN`.
+
+**Solution**: Verify your GitHub username and update `GH_ALLOWED_LOGIN`:
+
+```bash
+# Check your GitHub username
+GH_ALLOWED_LOGIN=your-actual-username
+```
+
+### Callback URL mismatch
+
+**Cause**: The callback URL in your GitHub OAuth app doesn't match your application URL.
+
+**Solution**: Update the callback URL in your [GitHub OAuth app settings](https://github.com/settings/developers):
+
+- Dev: `http://localhost:3000/api/auth/callback/github`
+- Prod: `https://yourdomain.com/api/auth/callback/github`
+
+## Production Deployment
+
+<Steps>
+  <Step title="Create production OAuth app">
+    Create a separate GitHub OAuth app for production with the production callback URL.
+  </Step>
+  
+  <Step title="Configure environment variables">
+    Set production environment variables in your hosting platform:
+    ```bash
+    GH_CLIENT_ID=prod_client_id
+    GH_CLIENT_SECRET=prod_client_secret
+    GH_ALLOWED_LOGIN=your_username
+    ```
+  </Step>
+  
+  <Step title="Disable insecure mode">
+    Ensure `AUTH_INSECURE_ALLOW_ALL` is **not** set or set to `false`.
+  </Step>
+  
+  <Step title="Test authentication">
+    Verify sign-in and access control work correctly in production.
+  </Step>
+</Steps>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Authentication Setup" icon="lock" href="/auth/setup">
+    Learn about the BetterAuth configuration
+  </Card>
+  <Card title="S3 Configuration" icon="cloud" href="/storage/s3-configuration">
+    Set up S3 storage with Tigris
+  </Card>
+</CardGroup>

@@ -1,0 +1,687 @@
+---
+title: "Installation"
+description: "Complete setup guide with prerequisites and configuration"
+---
+
+## System Requirements
+
+Before installing Personal Notes, ensure your environment meets these requirements:
+
+- **Node.js**: Version 20 or higher
+- **pnpm**: Version 10 or higher (package manager)
+- **Git**: For cloning the repository and hooks
+
+<CodeGroup>
+```bash macOS (Homebrew)
+brew install node pnpm git
+```
+
+```bash Ubuntu/Debian
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+npm install -g pnpm
+```
+
+```bash Windows (Chocolatey)
+choco install nodejs pnpm git
+```
+</CodeGroup>
+
+Verify installations:
+
+```bash
+node --version  # Should be v20.x.x or higher
+pnpm --version  # Should be 10.x.x or higher
+```
+
+---
+
+## Third-Party Services
+
+Personal Notes integrates with several cloud services. You'll need accounts and credentials for each.
+
+### 1. Tigris (S3-Compatible Storage)
+
+Tigris provides globally distributed S3-compatible object storage.
+
+<Steps>
+  <Step title="Create a Tigris account">
+    Sign up at [tigris.dev](https://tigris.dev) and create a new project.
+  </Step>
+
+  <Step title="Create a bucket">
+    1. Go to **Buckets** in the dashboard
+    2. Click **Create Bucket**
+    3. Name it (e.g., `personal-notes-vault`)
+    4. Select your region
+  </Step>
+
+  <Step title="Generate access keys">
+    1. Navigate to **Settings** → **Access Keys**
+    2. Click **Create Access Key**
+    3. Save the **Access Key ID** and **Secret Access Key**
+
+    <Warning>
+      The secret key is only shown once. Store it securely (e.g., in a password manager).
+    </Warning>
+  </Step>
+</Steps>
+
+You'll need these values:
+
+```bash
+TIGRIS_S3_ENDPOINT=https://fly.storage.tigris.dev
+TIGRIS_S3_REGION=auto
+TIGRIS_S3_ACCESS_KEY_ID=tid_...
+TIGRIS_S3_SECRET_ACCESS_KEY=tsec_...
+TIGRIS_S3_BUCKET=personal-notes-vault
+TIGRIS_S3_PREFIX=vault/  # Optional: prefix for all files
+```
+
+<Accordion title="Alternative: AWS S3 or other S3-compatible providers">
+  You can use any S3-compatible storage:
+
+  **AWS S3**:
+  ```bash
+  TIGRIS_S3_ENDPOINT=https://s3.amazonaws.com
+  TIGRIS_S3_REGION=us-east-1
+  TIGRIS_S3_ACCESS_KEY_ID=AKIA...
+  TIGRIS_S3_SECRET_ACCESS_KEY=...
+  TIGRIS_S3_BUCKET=my-notes-bucket
+  ```
+
+  **Cloudflare R2**:
+  ```bash
+  TIGRIS_S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
+  TIGRIS_S3_REGION=auto
+  TIGRIS_S3_ACCESS_KEY_ID=...
+  TIGRIS_S3_SECRET_ACCESS_KEY=...
+  TIGRIS_S3_BUCKET=my-notes
+  ```
+
+  **MinIO (self-hosted)**:
+  ```bash
+  TIGRIS_S3_ENDPOINT=https://minio.example.com
+  TIGRIS_S3_REGION=us-east-1
+  TIGRIS_S3_ACCESS_KEY_ID=minioadmin
+  TIGRIS_S3_SECRET_ACCESS_KEY=minioadmin
+  TIGRIS_S3_BUCKET=notes
+  ```
+</Accordion>
+
+---
+
+### 2. GitHub OAuth App
+
+Personal Notes uses GitHub for authentication via BetterAuth.
+
+<Steps>
+  <Step title="Create a GitHub OAuth App">
+    1. Go to [GitHub Developer Settings](https://github.com/settings/developers)
+    2. Click **New OAuth App**
+    3. Fill in the details:
+       - **Application name**: Personal Notes (or your preferred name)
+       - **Homepage URL**: `http://localhost:3000` (for development)
+       - **Authorization callback URL**: `http://localhost:3000/api/auth/callback/github`
+    4. Click **Register application**
+  </Step>
+
+  <Step title="Get credentials">
+    1. Copy the **Client ID**
+    2. Click **Generate a new client secret**
+    3. Copy the **Client Secret**
+
+    <Warning>
+      The client secret is only shown once. Save it securely.
+    </Warning>
+  </Step>
+
+  <Step title="For production deployment">
+    Create a separate OAuth app with production URLs:
+
+    - **Homepage URL**: `https://notes.yourdomain.com`
+    - **Authorization callback URL**: `https://notes.yourdomain.com/api/auth/callback/github`
+  </Step>
+</Steps>
+
+You'll need:
+
+```bash
+GH_CLIENT_ID=Ov23li...
+GH_CLIENT_SECRET=your_secret_here
+GH_ALLOWED_LOGIN=your-github-username
+```
+
+<Note>
+  **GH_ALLOWED_LOGIN** restricts access to a single GitHub username or email. This is a security feature for single-user deployments.
+</Note>
+
+---
+
+### 3. Turso Database
+
+Turso provides edge-replicated SQLite databases (LibSQL) for session storage.
+
+<Steps>
+  <Step title="Install Turso CLI">
+    ```bash
+    curl -sSfL https://get.tur.so/install.sh | bash
+    ```
+
+    Or with Homebrew:
+    ```bash
+    brew install tursodatabase/tap/turso
+    ```
+  </Step>
+
+  <Step title="Create an account and authenticate">
+    ```bash
+    turso auth signup
+    ```
+  </Step>
+
+  <Step title="Create a database">
+    ```bash
+    turso db create personal-notes-db
+    ```
+
+    Get the database URL:
+    ```bash
+    turso db show personal-notes-db --url
+    ```
+
+    Output: `libsql://personal-notes-db-yourname.turso.io`
+  </Step>
+
+  <Step title="Generate an auth token">
+    ```bash
+    turso db tokens create personal-notes-db
+    ```
+
+    Copy the token that's printed.
+  </Step>
+</Steps>
+
+You'll need:
+
+```bash
+TURSO_DATABASE_URL=libsql://personal-notes-db.turso.io
+TURSO_AUTH_TOKEN=eyJhbGc...
+```
+
+<Accordion title="Legacy environment variable support">
+  Personal Notes also supports these legacy aliases:
+  - `TURSO_DB_URL` (alias for `TURSO_DATABASE_URL`)
+  - `TURSO_DB_TOKEN` (alias for `TURSO_AUTH_TOKEN`)
+
+  ```typescript
+  // From lib/db/index.ts
+  const url = process.env.TURSO_DATABASE_URL || process.env.TURSO_DB_URL;
+  const authToken = process.env.TURSO_AUTH_TOKEN || process.env.TURSO_DB_TOKEN;
+  ```
+</Accordion>
+
+---
+
+### 4. Upstash Redis (Optional)
+
+Upstash provides serverless Redis for cluster-wide manifest and file caching.
+
+<Steps>
+  <Step title="Create an Upstash account">
+    Sign up at [upstash.com](https://upstash.com) and create a new database.
+  </Step>
+
+  <Step title="Create a Redis database">
+    1. Click **Create Database**
+    2. Choose a region close to your S3 storage
+    3. Select **TLS enabled**
+  </Step>
+
+  <Step title="Get REST API credentials">
+    1. Go to your database dashboard
+    2. Copy the **UPSTASH_REDIS_REST_URL**
+    3. Copy the **UPSTASH_REDIS_REST_TOKEN**
+  </Step>
+</Steps>
+
+```bash
+UPSTASH_REDIS_REST_URL=https://your-db.upstash.io
+UPSTASH_REDIS_REST_TOKEN=AYBgASQ...
+```
+
+<Note>
+  **Why is this optional?**  
+  If omitted, the file tree manifest will be fetched directly from S3 on each request. Redis dramatically improves performance in production by caching the manifest cluster-wide.
+</Note>
+
+---
+
+### 5. AI Gateway API Key
+
+Personal Notes uses Vercel AI SDK with a configurable AI gateway.
+
+<Steps>
+  <Step title="Choose your AI provider">
+    The default is Google Gemini via AI Gateway. You can also use:
+    - OpenAI (GPT-4, GPT-3.5)
+    - Anthropic (Claude)
+    - Any OpenAI-compatible endpoint
+  </Step>
+
+  <Step title="Get an API key">
+    For Google Gemini via AI Gateway:
+    1. Sign up at your AI gateway provider
+    2. Generate an API key
+    3. Ensure you have credits/quota available
+  </Step>
+
+  <Step title="Configure model (optional)">
+    Set your preferred model:
+
+    ```bash
+    AI_MODEL=google/gemini-2.0-flash-exp  # Default
+    # Or:
+    # AI_MODEL=openai/gpt-4
+    # AI_MODEL=anthropic/claude-3-5-sonnet-20241022
+    ```
+
+    You can also set a separate chat model:
+    ```bash
+    AI_CHAT_MODEL=google/gemini-2.0-flash-exp
+    ```
+  </Step>
+</Steps>
+
+```bash
+AI_GATEWAY_API_KEY=your_api_key_here
+AI_MODEL=google/gemini-2.0-flash-exp
+AI_CHAT_MODEL=google/gemini-2.0-flash-exp  # Optional, defaults to AI_MODEL
+```
+
+<Accordion title="Model parsing logic">
+  From `lib/ai/models.ts`:
+
+  ```typescript
+  export function parseModelId(value: string | null | undefined): string | null {
+    if (!value || typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    return trimmed;
+  }
+  ```
+
+  The app uses:
+  1. `AI_CHAT_MODEL` for chat (if set)
+  2. Falls back to `AI_MODEL`
+  3. Falls back to `DEFAULT_CHAT_MODEL` (`google/gemini-2.0-flash-exp`)
+</Accordion>
+
+---
+
+## Installation Steps
+
+With all prerequisites ready, follow these steps:
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Ramgopalbhat10/notes.git
+    cd notes
+    ```
+  </Step>
+
+  <Step title="Install dependencies">
+    ```bash
+    pnpm install
+    ```
+
+    This installs all packages from `package.json`, including:
+    - Next.js 16 (App Router)
+    - BlockNote editor
+    - Vercel AI SDK
+    - BetterAuth
+    - AWS SDK v3 (S3 client)
+    - Drizzle ORM
+  </Step>
+
+  <Step title="Set up git hooks">
+    ```bash
+    pnpm hooks:install
+    ```
+
+    This configures repository-managed hooks in `.githooks/`:
+    - **pre-commit**: Enforces workflow docs for implementation changes
+    - **commit-msg**: Enforces Conventional Commits format
+    - **pre-push**: Runs lint and build for non-markdown changes
+
+    <Info>
+      These hooks ensure code quality and maintain workflow documentation.
+    </Info>
+  </Step>
+
+  <Step title="Create .env file">
+    Create a `.env` file in the project root with all required variables:
+
+    ```bash .env
+    # S3 Storage
+    TIGRIS_S3_ENDPOINT=https://fly.storage.tigris.dev
+    TIGRIS_S3_REGION=auto
+    TIGRIS_S3_ACCESS_KEY_ID=tid_...
+    TIGRIS_S3_SECRET_ACCESS_KEY=tsec_...
+    TIGRIS_S3_BUCKET=your-bucket-name
+    TIGRIS_S3_PREFIX=vault/
+
+    # GitHub OAuth
+    GH_CLIENT_ID=Ov23li...
+    GH_CLIENT_SECRET=...
+    GH_ALLOWED_LOGIN=your-github-username
+
+    # BetterAuth (generate: openssl rand -base64 32)
+    BETTER_AUTH_SECRET=...
+
+    # Turso Database
+    TURSO_DATABASE_URL=libsql://...
+    TURSO_AUTH_TOKEN=...
+
+    # Upstash Redis (optional)
+    UPSTASH_REDIS_REST_URL=https://...
+    UPSTASH_REDIS_REST_TOKEN=...
+
+    # AI Configuration
+    AI_GATEWAY_API_KEY=...
+    AI_MODEL=google/gemini-2.0-flash-exp
+    ```
+
+    <Accordion title="Generate BETTER_AUTH_SECRET">
+      Use OpenSSL to generate a secure random secret:
+
+      ```bash
+      openssl rand -base64 32
+      ```
+
+      Copy the output to `BETTER_AUTH_SECRET`.
+    </Accordion>
+  </Step>
+
+  <Step title="Initialize database schema">
+    Generate the BetterAuth Drizzle schema:
+
+    ```bash
+    pnpm auth:schema
+    ```
+
+    This writes to `drizzle/schema.ts`.
+
+    Generate migration files:
+
+    ```bash
+    pnpm db:generate
+    ```
+
+    Apply migrations to Turso:
+
+    ```bash
+    pnpm db:migrate
+    ```
+
+    <Warning>
+      If you get a 401 error, your `TURSO_AUTH_TOKEN` may lack write permissions. Generate a new token with `turso db tokens create`.
+    </Warning>
+  </Step>
+
+  <Step title="Build file tree manifest">
+    Scan your S3 bucket and create the initial manifest:
+
+    ```bash
+    pnpm tree:build
+    ```
+
+    This does a dry-run and writes to `.cache/file-tree/manifest.json` locally.
+
+    To upload to S3 and sync to Redis:
+
+    ```bash
+    pnpm tree:refresh -- --push-redis
+    ```
+
+    <Info>
+      If your bucket is empty, the manifest will have no files—that's expected. You can create files via the UI and refresh the tree later.
+    </Info>
+  </Step>
+
+  <Step title="Start the development server">
+    ```bash
+    pnpm dev
+    ```
+
+    Visit [http://localhost:3000](http://localhost:3000).
+
+    You'll be redirected to `/files`, which loads the file tree and workspace.
+  </Step>
+
+  <Step title="Authenticate and test">
+    1. Click **Sign In** and authorize with GitHub
+    2. Create a test note
+    3. Try AI features (chat, improve, summarize)
+    4. Verify file operations (create, rename, delete)
+  </Step>
+</Steps>
+
+---
+
+## Optional Configuration
+
+### Markdown Image Allowlist
+
+By default, markdown images are restricted to:
+- Same-origin URLs (relative paths)
+- `https://avatars.githubusercontent.com`
+- `https://nordicapis.com` (and `www.nordicapis.com`)
+
+To add custom hosts:
+
+```bash .env
+NEXT_PUBLIC_MARKDOWN_IMAGE_HOSTS=cdn.example.com,images.example.org
+```
+
+From `README.md`:
+
+> Markdown images are restricted to: relative URLs (same-origin assets), and HTTPS hosts listed in `NEXT_PUBLIC_MARKDOWN_IMAGE_HOSTS`.
+
+### PWA in Development
+
+Enable service worker registration during development:
+
+```bash .env
+NEXT_PUBLIC_ENABLE_PWA_IN_DEV=true
+```
+
+<Note>
+  In production builds, PWA registration is enabled automatically.
+</Note>
+
+---
+
+## Scripts Reference
+
+All available pnpm scripts:
+
+| Command | Description |
+|---------|-------------|
+| `pnpm dev` | Start Next.js development server |
+| `pnpm build` | Build for production |
+| `pnpm start` | Run production build locally |
+| `pnpm lint` | Run ESLint |
+| `pnpm hooks:install` | Configure git hooks from `.githooks/` |
+| `pnpm tree:build` | Build manifest locally (dry-run) |
+| `pnpm tree:refresh [-- --push-redis]` | Build, upload to S3, optionally sync to Redis |
+| `pnpm auth:schema` | Generate BetterAuth Drizzle schema |
+| `pnpm db:generate` | Generate SQL migrations |
+| `pnpm db:migrate` | Apply migrations to Turso |
+| `pnpm workflow:check-docs` | Validate workflow documentation |
+| `pnpm workflow:check-commit-msg` | Validate commit message format |
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Missing environment variable errors">
+    Ensure your `.env` file exists in the project root and contains all required variables.
+
+    Common missing vars:
+    - `TIGRIS_S3_ACCESS_KEY_ID`
+    - `GH_CLIENT_ID`
+    - `BETTER_AUTH_SECRET`
+    - `TURSO_DATABASE_URL`
+
+    Restart the dev server after updating `.env`.
+  </Accordion>
+
+  <Accordion title="Database migration fails">
+    **Error: 401 Unauthorized**
+
+    Your `TURSO_AUTH_TOKEN` has expired or lacks permissions.
+
+    Generate a new token:
+    ```bash
+    turso db tokens create YOUR_DB_NAME
+    ```
+
+    Update `.env` and re-run:
+    ```bash
+    pnpm db:migrate
+    ```
+  </Accordion>
+
+  <Accordion title="File tree not loading">
+    1. Verify `file-tree.json` exists in your S3 bucket root:
+       ```bash
+       aws s3 ls s3://your-bucket/file-tree.json
+       ```
+
+    2. Regenerate the manifest:
+       ```bash
+       pnpm tree:refresh -- --push-redis
+       ```
+
+    3. Check browser console for CORS errors. If using AWS S3, ensure CORS is configured:
+       ```json
+       [
+         {
+           "AllowedOrigins": ["http://localhost:3000"],
+           "AllowedMethods": ["GET", "PUT", "POST", "DELETE"],
+           "AllowedHeaders": ["*"]
+         }
+       ]
+       ```
+  </Accordion>
+
+  <Accordion title="Redis cache not updating">
+    After syncing vault changes to S3, run:
+
+    ```bash
+    pnpm tree:refresh -- --push-redis
+    ```
+
+    Verify the cache with:
+    ```bash
+    curl "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+      -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+    ```
+
+    To purge the cache:
+    ```bash
+    curl -X DELETE "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+      -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+    ```
+  </Accordion>
+
+  <Accordion title="AI features not working">
+    - Verify `AI_GATEWAY_API_KEY` is correct
+    - Check your AI gateway account has credits
+    - Review server logs for specific errors:
+      ```bash
+      # In dev server output, look for:
+      # /api/ai/chat failed
+      # /api/ai/action failed
+      ```
+
+    - Test model availability:
+      ```bash
+      curl http://localhost:3000/api/ai/models
+      ```
+  </Accordion>
+
+  <Accordion title="GitHub OAuth callback fails">
+    **Error: redirect_uri_mismatch**
+
+    Your OAuth app's callback URL doesn't match.
+
+    1. Go to [GitHub OAuth Apps](https://github.com/settings/developers)
+    2. Edit your app
+    3. Ensure **Authorization callback URL** is exactly:
+       - Dev: `http://localhost:3000/api/auth/callback/github`
+       - Prod: `https://yourdomain.com/api/auth/callback/github`
+  </Accordion>
+
+  <Accordion title="pnpm install fails">
+    Ensure you're using pnpm 10+:
+
+    ```bash
+    pnpm --version
+    ```
+
+    If outdated, update:
+    ```bash
+    npm install -g pnpm@latest
+    ```
+
+    Clear cache and reinstall:
+    ```bash
+    pnpm store prune
+    pnpm install --force
+    ```
+  </Accordion>
+</AccordionGroup>
+
+---
+
+## Next Steps
+
+Your installation is complete! Here's what to do next:
+
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart Guide"
+    icon="rocket"
+    href="/quickstart"
+  >
+    Create your first note and explore AI features
+  </Card>
+
+  <Card
+    title="File Management"
+    icon="folder-tree"
+    href="/features/file-management"
+  >
+    Learn tree navigation and file operations
+  </Card>
+
+  <Card
+    title="Deploy to Production"
+    icon="cloud"
+    href="/deployment/production"
+  >
+    Set up GitHub Actions secrets and deploy to Vercel
+  </Card>
+
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/fs/list"
+  >
+    Explore the filesystem, tree, and AI API endpoints
+  </Card>
+</CardGroup>

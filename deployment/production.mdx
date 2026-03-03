@@ -1,0 +1,462 @@
+---
+title: Production Deployment
+description: Deploy the Personal Notes application to production with CI/CD best practices
+---
+
+This guide covers deploying the Personal Notes application to production, including platform-specific considerations and CI/CD integration.
+
+## Pre-Deployment Checklist
+
+Before deploying to production:
+
+<Steps>
+  <Step title="Environment variables configured">
+    Verify all required environment variables are set on your deployment platform:
+    - Tigris S3 credentials
+    - Turso database URL and token
+    - GitHub OAuth credentials
+    - AI Gateway API key
+    - Redis credentials (recommended)
+    
+    See [Environment Variables](/deployment/environment-variables) for the complete list.
+  </Step>
+  
+  <Step title="Database migrations applied">
+    Run database migrations against your production Turso instance:
+    
+    ```bash
+    # Set production env vars
+    export TURSO_DATABASE_URL=libsql://your-production-db.turso.io
+    export TURSO_AUTH_TOKEN=your_production_token
+    
+    # Apply migrations
+    pnpm db:migrate
+    ```
+    
+    See [Database Setup](/deployment/database-setup) for details.
+  </Step>
+  
+  <Step title="File tree manifest uploaded">
+    Build and upload your initial file tree manifest:
+    
+    ```bash
+    pnpm tree:refresh -- --push-redis
+    ```
+    
+    This uploads the manifest to S3 and syncs it to Redis (if configured).
+  </Step>
+  
+  <Step title="GitHub OAuth callback configured">
+    Update your GitHub OAuth app with the production callback URL:
+    
+    - **Homepage URL**: `https://your-domain.com`
+    - **Authorization callback URL**: `https://your-domain.com/api/auth/callback/github`
+  </Step>
+  
+  <Step title="Git hooks installed (for repository contributors)">
+    If deploying from a cloned repository, install workflow hooks:
+    
+    ```bash
+    pnpm hooks:install
+    ```
+  </Step>
+</Steps>
+
+## Platform-Specific Deployment
+
+### Vercel
+
+Recommended for Next.js applications with edge runtime support.
+
+<Steps>
+  <Step title="Install Vercel CLI">
+    ```bash
+    pnpm add -g vercel
+    ```
+  </Step>
+  
+  <Step title="Link project">
+    ```bash
+    vercel link
+    ```
+  </Step>
+  
+  <Step title="Set environment variables">
+    Add all required environment variables via the Vercel dashboard or CLI:
+    
+    ```bash
+    vercel env add TURSO_DATABASE_URL
+    vercel env add TURSO_AUTH_TOKEN
+    # ... repeat for all variables
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    # Deploy to preview
+    vercel
+    
+    # Deploy to production
+    vercel --prod
+    ```
+  </Step>
+</Steps>
+
+**Vercel Configuration:**
+
+```json
+// vercel.json (optional)
+{
+  "buildCommand": "pnpm build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "regions": ["iad1", "sfo1"],
+  "env": {
+    "NEXT_PUBLIC_APP_URL": "https://your-domain.com"
+  }
+}
+```
+
+### Netlify
+
+<Steps>
+  <Step title="Install Netlify CLI">
+    ```bash
+    pnpm add -g netlify-cli
+    ```
+  </Step>
+  
+  <Step title="Configure build settings">
+    Create `netlify.toml`:
+    
+    ```toml
+    [build]
+      command = "pnpm build"
+      publish = ".next"
+    
+    [build.environment]
+      NODE_VERSION = "20"
+    
+    [[plugins]]
+      package = "@netlify/plugin-nextjs"
+    ```
+  </Step>
+  
+  <Step title="Deploy">
+    ```bash
+    netlify deploy --prod
+    ```
+  </Step>
+</Steps>
+
+### Self-Hosted (Docker)
+
+For custom hosting with Docker:
+
+<Steps>
+  <Step title="Create Dockerfile">
+    ```dockerfile
+    FROM node:20-alpine AS base
+    
+    # Install pnpm
+    RUN corepack enable && corepack prepare pnpm@latest --activate
+    
+    # Dependencies
+    FROM base AS deps
+    WORKDIR /app
+    COPY package.json pnpm-lock.yaml ./
+    RUN pnpm install --frozen-lockfile
+    
+    # Builder
+    FROM base AS builder
+    WORKDIR /app
+    COPY --from=deps /app/node_modules ./node_modules
+    COPY . .
+    RUN pnpm build
+    
+    # Runner
+    FROM base AS runner
+    WORKDIR /app
+    ENV NODE_ENV=production
+    
+    COPY --from=builder /app/public ./public
+    COPY --from=builder /app/.next/standalone ./
+    COPY --from=builder /app/.next/static ./.next/static
+    
+    EXPOSE 3000
+    CMD ["node", "server.js"]
+    ```
+  </Step>
+  
+  <Step title="Build and run">
+    ```bash
+    docker build -t personal-notes .
+    docker run -p 3000:3000 --env-file .env.production personal-notes
+    ```
+  </Step>
+</Steps>
+
+## CI/CD Integration
+
+### Workflow Enforcement
+
+This repository ships with strict workflow enforcement via Git hooks and GitHub Actions.
+
+#### Local Git Hooks
+
+Repository-managed hooks in `.githooks/` enforce code quality:
+
+- **pre-commit**: Validates workflow documentation updates for implementation changes
+- **commit-msg**: Enforces Conventional Commits format (`feat|fix|refactor|docs|chore`)
+- **pre-push**: Runs workflow docs gate + `pnpm lint` + `pnpm build` (skips markdown-only pushes)
+
+**Install hooks:**
+
+```bash
+pnpm hooks:install
+```
+
+<Warning>
+  These hooks are **required** for contributors. They run the same checks as CI to catch issues early.
+</Warning>
+
+#### GitHub Actions
+
+Non-bypassable enforcement runs in CI on pull requests to `main`.
+
+**Required GitHub Secrets:**
+
+The `workflow-gates` CI job runs `pnpm build`, requiring all build-time environment variables:
+
+1. Navigate to: **Repository Settings → Secrets and variables → Actions**
+2. Add each secret under **Repository secrets**:
+
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `TIGRIS_S3_ENDPOINT`
+- `TIGRIS_S3_REGION`
+- `TIGRIS_S3_ACCESS_KEY_ID`
+- `TIGRIS_S3_SECRET_ACCESS_KEY`
+- `TIGRIS_S3_BUCKET`
+- `TIGRIS_S3_PREFIX` (set to empty string if unused)
+- `GH_CLIENT_ID`
+- `GH_CLIENT_SECRET`
+- `GH_ALLOWED_LOGIN`
+- `BETTER_AUTH_SECRET`
+- `AI_GATEWAY_API_KEY`
+
+**After adding secrets**, re-run any failed workflow jobs from the PR checks page.
+
+### Continuous Deployment Workflow
+
+Recommended GitHub Actions workflow for automatic deployments:
+
+```yaml
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v2
+        with:
+          version: 10
+      
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      
+      - name: Run linter
+        run: pnpm lint
+      
+      - name: Build application
+        run: pnpm build
+        env:
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_AUTH_TOKEN }}
+          TIGRIS_S3_ENDPOINT: ${{ secrets.TIGRIS_S3_ENDPOINT }}
+          TIGRIS_S3_REGION: ${{ secrets.TIGRIS_S3_REGION }}
+          TIGRIS_S3_ACCESS_KEY_ID: ${{ secrets.TIGRIS_S3_ACCESS_KEY_ID }}
+          TIGRIS_S3_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_S3_SECRET_ACCESS_KEY }}
+          TIGRIS_S3_BUCKET: ${{ secrets.TIGRIS_S3_BUCKET }}
+          TIGRIS_S3_PREFIX: ${{ secrets.TIGRIS_S3_PREFIX }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_ALLOWED_LOGIN: ${{ secrets.GH_ALLOWED_LOGIN }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          AI_GATEWAY_API_KEY: ${{ secrets.AI_GATEWAY_API_KEY }}
+      
+      - name: Refresh file tree manifest
+        run: pnpm tree:refresh -- --push-redis
+        env:
+          TIGRIS_S3_ENDPOINT: ${{ secrets.TIGRIS_S3_ENDPOINT }}
+          TIGRIS_S3_REGION: ${{ secrets.TIGRIS_S3_REGION }}
+          TIGRIS_S3_ACCESS_KEY_ID: ${{ secrets.TIGRIS_S3_ACCESS_KEY_ID }}
+          TIGRIS_S3_SECRET_ACCESS_KEY: ${{ secrets.TIGRIS_S3_SECRET_ACCESS_KEY }}
+          TIGRIS_S3_BUCKET: ${{ secrets.TIGRIS_S3_BUCKET }}
+          TIGRIS_S3_PREFIX: ${{ secrets.TIGRIS_S3_PREFIX }}
+          UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
+          UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
+      
+      - name: Deploy to Vercel
+        run: vercel deploy --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+```
+
+## Post-Deployment
+
+### Verify Deployment
+
+<Steps>
+  <Step title="Test authentication">
+    Visit your production URL and verify GitHub OAuth login works.
+  </Step>
+  
+  <Step title="Check file tree rendering">
+    Navigate to `/files` and ensure the file tree loads from the manifest.
+  </Step>
+  
+  <Step title="Test markdown rendering">
+    Open a markdown file and verify content loads from S3.
+  </Step>
+  
+  <Step title="Validate PWA installation">
+    Test PWA installability on mobile/desktop browsers.
+  </Step>
+</Steps>
+
+### Monitor Application Health
+
+Key metrics to monitor:
+
+- **S3 request latency** (file fetching performance)
+- **Redis cache hit rate** (manifest cache effectiveness)
+- **Database connection errors** (Turso availability)
+- **Authentication failures** (GitHub OAuth issues)
+- **Build failures in CI** (workflow enforcement)
+
+## Deployment Best Practices
+
+### File Tree Manifest Updates
+
+When vault contents change:
+
+```bash
+# After syncing new markdown files to S3
+pnpm tree:refresh -- --push-redis
+```
+
+This ensures:
+1. New manifest is uploaded to S3
+2. Redis cache is updated across all regions
+3. Next request serves the latest tree immediately
+
+<Info>
+  Run this in CI/CD after syncing vault changes so every edge region shares the updated manifest.
+</Info>
+
+### Cache Invalidation
+
+The manifest includes cache headers:
+- **Client**: `ETag` + `Cache-Control` with stale-while-revalidate
+- **Redis**: Manual invalidation via Upstash dashboard or API
+
+**Purge Redis cache:**
+
+```bash
+curl -X DELETE "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+```
+
+### Deployment Artifacts
+
+Add `.cache/file-tree/` to your deploy ignore list (`.vercelignore`, `.dockerignore`):
+
+```
+# .vercelignore
+.cache/file-tree/
+```
+
+The manifest should be sourced from S3/Redis, not bundled artifacts.
+
+### Security Considerations
+
+- **Never commit** `.env` files to version control
+- **Rotate secrets** regularly (OAuth secrets, auth tokens)
+- **Use environment-specific** credentials (separate dev/prod databases)
+- **Restrict `GH_ALLOWED_LOGIN`** to authorized users only
+- **Enable HTTPS** on all production domains
+- **Review Tigris bucket permissions** (private, not public-read)
+
+### Performance Optimization
+
+- **Enable Redis caching** for manifest (reduces S3 requests)
+- **Use Turso replicas** close to your deployment regions
+- **Configure CDN** for static assets (Vercel Edge Network, Cloudflare)
+- **Monitor bundle size** with `pnpm build` output
+- **Enable PWA** for offline-capable experience
+
+## Troubleshooting
+
+### Build Failures
+
+**Missing environment variables:**
+
+```bash
+Error: Missing environment variable: TIGRIS_S3_BUCKET
+```
+
+Verify all required variables are set in your deployment platform.
+
+**Workflow enforcement failures:**
+
+Local hooks prevent commits that don't meet requirements:
+- Use Conventional Commit format: `feat: add new feature`
+- Update workflow docs when changing implementation
+- Run `pnpm lint` before pushing
+
+### Runtime Errors
+
+**401 on file tree refresh:**
+
+Check Turso auth token has write access:
+
+```bash
+turso db tokens create personal-notes
+```
+
+**Manifest not updating:**
+
+Purge Redis cache and rebuild:
+
+```bash
+curl -X DELETE "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+
+pnpm tree:refresh -- --push-redis
+```
+
+**Authentication redirects fail:**
+
+Verify GitHub OAuth callback URL matches your deployment URL exactly.
+
+## Next Steps
+
+- Configure custom domain and SSL certificate
+- Set up monitoring and error tracking (Sentry, LogRocket)
+- Implement automated backups for Turso database
+- Configure Redis persistence policies in Upstash dashboard
+- Review [Environment Variables](/deployment/environment-variables) reference

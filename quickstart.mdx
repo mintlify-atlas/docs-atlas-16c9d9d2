@@ -1,80 +1,339 @@
 ---
 title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+description: "Get your Personal Notes vault running and create your first note"
 ---
 
-## Get started in three steps
+## Overview
 
-Get your documentation site running locally and make your first customization.
-
-### Step 1: Set up your local environment
-
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
-
-<CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
-</CardGroup>
+This guide walks you through setting up Personal Notes from scratch, configuring authentication, and creating your first markdown note with AI assistance.
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Time to complete**: ~15 minutes (excluding third-party service setup)
+</Note>
+
+## Prerequisites
+
+Before you begin, ensure you have:
+
+- **Node.js 20+** and **pnpm 10+** installed
+- A **Tigris account** (or S3-compatible storage)
+- A **GitHub OAuth app** for authentication
+- A **Turso database** for session storage
+- An **AI Gateway API key** (for AI features)
+
+<Warning>
+  Don't have these services yet? See the [Installation Guide](/installation) for detailed setup instructions.
+</Warning>
+
+---
+
+<Steps>
+  <Step title="Clone and Install">
+    Clone the repository and install dependencies:
+
+    ```bash
+    git clone https://github.com/Ramgopalbhat10/notes.git
+    cd notes
+    pnpm install
+    ```
+
+    Install the git hooks for workflow enforcement:
+
+    ```bash
+    pnpm hooks:install
+    ```
+
+    <Info>
+      The hooks enforce Conventional Commits and workflow documentation updates.
+    </Info>
+  </Step>
+
+  <Step title="Configure Environment Variables">
+    Create a `.env` file in the project root with your credentials:
+
+    ```bash .env
+    # Tigris S3 Configuration
+    TIGRIS_S3_ENDPOINT=https://fly.storage.tigris.dev
+    TIGRIS_S3_REGION=auto
+    TIGRIS_S3_ACCESS_KEY_ID=tid_your_access_key
+    TIGRIS_S3_SECRET_ACCESS_KEY=tsec_your_secret_key
+    TIGRIS_S3_BUCKET=your-bucket-name
+    TIGRIS_S3_PREFIX=vault/
+
+    # GitHub OAuth (from https://github.com/settings/developers)
+    GH_CLIENT_ID=Ov23liYourClientId
+    GH_CLIENT_SECRET=your_github_client_secret
+    GH_ALLOWED_LOGIN=your-github-username
+
+    # BetterAuth Secret (generate with: openssl rand -base64 32)
+    BETTER_AUTH_SECRET=your_random_secret_here
+
+    # Turso Database
+    TURSO_DATABASE_URL=libsql://your-db.turso.io
+    TURSO_AUTH_TOKEN=your_turso_token
+
+    # Upstash Redis (optional but recommended)
+    UPSTASH_REDIS_REST_URL=https://your-redis.upstash.io
+    UPSTASH_REDIS_REST_TOKEN=your_token
+
+    # AI Configuration
+    AI_GATEWAY_API_KEY=your_ai_gateway_key
+    AI_MODEL=google/gemini-2.0-flash-exp
+    ```
+
+    <Accordion title="Understanding the key variables">
+      - **TIGRIS_S3_PREFIX**: Optional folder prefix inside your bucket (e.g., `vault/`). All notes will be stored under this path.
+      - **GH_ALLOWED_LOGIN**: GitHub username or email that's allowed to access the app. Only this user can authenticate.
+      - **UPSTASH_REDIS_REST_URL/TOKEN**: Cluster-wide cache for the file tree manifest. Highly recommended for production.
+      - **AI_MODEL**: Defaults to `google/gemini-2.0-flash-exp`. You can use any model supported by Vercel AI SDK.
+    </Accordion>
+  </Step>
+
+  <Step title="Initialize Database">
+    Generate the BetterAuth schema and apply migrations:
+
+    ```bash
+    # Generate Drizzle schema from BetterAuth config
+    pnpm auth:schema
+
+    # Generate migration files
+    pnpm db:generate
+
+    # Apply migrations to Turso
+    pnpm db:migrate
+    ```
+
+    <Info>
+      This creates the `user`, `session`, `account`, and `verification` tables required for authentication.
+    </Info>
+  </Step>
+
+  <Step title="Build and Upload File Tree Manifest">
+    Generate the initial file tree manifest and upload it to S3:
+
+    ```bash
+    # Build manifest and upload to S3 (also pushes to Redis if configured)
+    pnpm tree:refresh -- --push-redis
+    ```
+
+    This command:
+    1. Scans your S3 bucket prefix for `.md` files
+    2. Builds a JSON manifest with node IDs, paths, and metadata
+    3. Uploads `file-tree.json` to the bucket root
+    4. Syncs the manifest to Upstash Redis (if `--push-redis` flag is set)
+
+    <Accordion title="What if I don't have any files yet?">
+      That's fine! The script will generate an empty manifest. You can create files through the UI later, then refresh the tree from the app's toolbar.
+    </Accordion>
+  </Step>
+
+  <Step title="Start the Development Server">
+    Launch the Next.js development server:
+
+    ```bash
+    pnpm dev
+    ```
+
+    Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+    You'll be redirected to `/files`, which renders the cached tree and workspace.
+  </Step>
+
+  <Step title="Authenticate with GitHub">
+    1. Click **Sign In** in the app
+    2. Authorize with your GitHub account
+    3. You'll be redirected back to the app
+
+    <Warning>
+      If your GitHub username doesn't match `GH_ALLOWED_LOGIN`, you'll see an "Access denied" error. Double-check your `.env` configuration.
+    </Warning>
+
+    The authentication flow:
+
+    ```typescript
+    // From lib/auth/index.ts
+    export function isAllowedUser(session: SessionLike): boolean {
+      if (INSECURE_ALLOW_ALL) return true;
+      if (!ALLOWED_LOGIN) return false;
+      const { username, email } = getUserCandidates(session);
+      return username === ALLOWED_LOGIN || email === ALLOWED_LOGIN;
+    }
+    ```
+  </Step>
+
+  <Step title="Create Your First Note">
+    Now that you're authenticated, let's create a note:
+
+    1. **Click the folder icon** in the left sidebar (or right-click in empty space)
+    2. Select **New File**
+    3. Name it `welcome.md`
+    4. The editor opens automatically
+
+    Try typing some markdown:
+
+    ```markdown
+    # Welcome to Personal Notes
+
+    This is my first note in the vault.
+
+    ## Features I'm excited about
+
+    - AI-powered writing assistance
+    - S3-backed storage
+    - Rich markdown editing
+
+    ## Next Steps
+
+    - [ ] Explore the file tree
+    - [ ] Try the AI chat
+    - [ ] Create some folders
+    ```
+
+    <Info>
+      The editor autosaves after 800ms of inactivity. You can also manually save with `Cmd/Ctrl + S`.
+    </Info>
+  </Step>
+
+  <Step title="Try AI Features">
+    Let's use AI to enhance your note:
+
+    **AI Actions (Quick Improvements)**
+
+    1. Select some text in your note
+    2. Click the **AI Actions** dropdown in the header
+    3. Choose **Improve Writing**, **Summarize**, or **Expand**
+    4. Review the AI suggestion and insert it into your note
+
+    ```typescript
+    // From app/api/ai/action/route.ts
+    const actionHints: Record<ActionType, string> = {
+      improve: "Improve clarity and flow without changing meaning.",
+      summarize: "Provide a concise summary in 3-5 bullet points.",
+      expand: "Expand the ideas with richer detail while staying on topic.",
+    };
+    ```
+
+    **AI Chat (Context-Aware Assistant)**
+
+    1. Open the **right sidebar** (AI Chat)
+    2. Ask a question about your current note, like:
+       - "Summarize this note in 3 bullet points"
+       - "What are the main action items?"
+       - "Expand on the features section"
+    3. The AI has full context of your document and responds accordingly
+
+    <Accordion title="How does context work?">
+      When you chat with AI, the current file's content is automatically included:
+
+      ```typescript
+      // From app/api/ai/chat/route.ts
+      const contextMessage = {
+        role: "system",
+        content: [
+          `File path: ${fileKey}`,
+          "--- File Excerpt Start ---",
+          excerpt,
+          "--- File Excerpt End ---",
+        ].join("\n\n"),
+      };
+      ```
+
+      The AI sees your file path, content (up to 6,000 chars), and chat history.
+    </Accordion>
+  </Step>
+
+  <Step title="Organize with Folders">
+    Create a folder structure:
+
+    1. Right-click in the sidebar
+    2. Select **New Folder**
+    3. Name it `projects`
+    4. Expand the folder and create a new file inside: `projects/idea-log.md`
+
+    You can also:
+    - **Rename** files/folders (right-click → Rename, or press `F2`)
+    - **Move** items to different folders (right-click → Move)
+    - **Delete** files (right-click → Delete, or `Cmd/Ctrl + Backspace`)
+
+    All operations sync to S3 immediately and update the cached manifest.
+  </Step>
+</Steps>
+
+---
+
+## Next Steps
+
+You now have a working Personal Notes vault! Here's what to explore next:
+
+<CardGroup cols={2}>
+  <Card
+    title="File Management"
+    icon="folder-tree"
+    href="/features/file-management"
+  >
+    Learn about tree navigation, context menus, and keyboard shortcuts
+  </Card>
+
+  <Card
+    title="Markdown Editor"
+    icon="pen-to-square"
+    href="/features/markdown-editor"
+  >
+    Discover BlockNote features, preview mode, and Mermaid diagrams
+  </Card>
+
+  <Card
+    title="AI Assistance"
+    icon="sparkles"
+    href="/features/ai-assistance"
+  >
+    Master AI actions, chat context, and writing workflows
+  </Card>
+
+  <Card
+    title="Deployment"
+    icon="rocket"
+    href="/deployment/production"
+  >
+    Deploy to production with Vercel, Cloudflare, or your own infrastructure
+  </Card>
+</CardGroup>
+
+---
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Authentication fails with 'Access denied'">
+    Verify that your `GH_ALLOWED_LOGIN` in `.env` matches your GitHub username (case-insensitive) or email exactly.
+
+    ```bash
+    # Check your GitHub username
+    curl https://api.github.com/users/YOUR_USERNAME
+    ```
+  </Accordion>
+
+  <Accordion title="File tree doesn't appear">
+    1. Check that `file-tree.json` exists in your S3 bucket root
+    2. Run `pnpm tree:refresh -- --push-redis` to regenerate
+    3. Check browser console for errors (likely CORS or credentials issue)
+  </Accordion>
+
+  <Accordion title="AI features return errors">
+    - Verify `AI_GATEWAY_API_KEY` is set correctly
+    - Check that your AI Gateway account has credits
+    - Review server logs for specific error messages
+  </Accordion>
+
+  <Accordion title="Database migration fails with 401">
+    Your `TURSO_AUTH_TOKEN` may have expired or lacks write permissions. Generate a new token:
+
+    ```bash
+    turso db tokens create YOUR_DB_NAME
+    ```
+  </Accordion>
+</AccordionGroup>
+
+<Note>
+  For more troubleshooting tips, see the [Installation Guide](/installation#troubleshooting) or check the GitHub repository's issues.
 </Note>

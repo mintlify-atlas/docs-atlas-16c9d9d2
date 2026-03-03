@@ -1,0 +1,444 @@
+---
+title: AI Assistance
+description: Enhance your writing with AI-powered content actions and intelligent chat
+---
+
+AI assistance helps you write better notes faster with content actions and an intelligent chat sidebar.
+
+## AI Content Actions
+
+Apply AI transformations directly to your note content:
+
+<CardGroup cols={3}>
+  <Card title="Improve Writing" icon="wand-magic-sparkles">
+    Enhance clarity, grammar, and style while preserving your meaning.
+  </Card>
+  <Card title="Summarize" icon="list-check">
+    Generate a concise summary of your content.
+  </Card>
+  <Card title="Expand" icon="arrow-up-right">
+    Elaborate on your ideas with additional detail and context.
+  </Card>
+</CardGroup>
+
+### Available Actions
+
+The AI actions are defined in the application constants:
+
+```typescript
+// AI action definitions
+// From: components/vault-workspace/constants.ts:10-26
+export const AI_ACTIONS: AiActionDefinition[] = [
+  {
+    value: "improve",
+    label: "Improve Writing",
+    icon: Wand2,
+  },
+  {
+    value: "summarize",
+    label: "Summarize",
+    icon: ListChecks,
+  },
+  {
+    value: "expand",
+    label: "Expand",
+    icon: ArrowUpRight,
+  },
+];
+```
+
+### Triggering AI Actions
+
+Access AI actions from the header menu:
+
+1. Open a note in the editor
+2. Optionally select specific text to process
+3. Click the three-dot menu in the header
+4. Choose an AI action
+
+<Tabs>
+  <Tab title="Full Document">
+    When no text is selected, AI processes the entire note:
+    
+    - Analyzes the complete content
+    - Provides comprehensive results
+    - Useful for document-level improvements
+  </Tab>
+  <Tab title="Selected Text">
+    Select text before triggering to process only that portion:
+    
+    - Works on the selected paragraph or section
+    - Faster processing for specific edits
+    - Maintains context of surrounding content
+    
+    ```typescript
+    // Selection tracking for targeted actions
+    // From: components/blocknote-editor.tsx:41-88
+    const selection = editor.getSelection();
+    if (selection) {
+      const blocks = selection.blocks;
+      // Calculate character positions for the selection
+      setSelection({ from, to });
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## AI Result Panel
+
+When you trigger an AI action, results appear in a panel above your note:
+
+### Panel Features
+
+<AccordionGroup>
+  <Accordion title="Real-time Streaming" icon="stream">
+    AI responses stream in real-time as they're generated:
+    
+    - See partial results immediately
+    - Loading indicator shows streaming progress
+    - Cancel button available during generation
+    
+    ```typescript
+    // Streaming state management
+    const isStreaming = status === "submitted" || status === "streaming";
+    ```
+  </Accordion>
+  
+  <Accordion title="Result Actions" icon="bolt">
+    Once generation completes, you can:
+    
+    **Insert** - Add AI result at cursor position
+    ```typescript
+    // Insert at cursor
+    applyAiResult(text, { strategy: "insert" });
+    ```
+    
+    **Replace** - Replace selected text or entire content
+    ```typescript
+    // Replace selection or document
+    applyAiResult(text, { strategy: "replace" });
+    ```
+    
+    **Copy** - Copy to clipboard for use elsewhere
+    
+    **Retry** - Generate a new response with the same prompt
+  </Accordion>
+  
+  <Accordion title="Error Handling" icon="triangle-exclamation">
+    If generation fails:
+    
+    - Clear error message displayed
+    - Retry button available
+    - Can close panel to dismiss
+    
+    Common errors include rate limits, network issues, or content policy violations.
+  </Accordion>
+</AccordionGroup>
+
+### Panel Layout
+
+The result panel appears above your content:
+
+```tsx
+// Panel positioning
+// From: components/vault-workspace/index.tsx:512-523
+{aiPanelVisible ? (
+  <AiResultPanel
+    state={aiState}
+    onClose={closePanel}
+    onCancel={cancel}
+    onRetry={retry}
+    onCopy={copyResult}
+    onInsert={applyInsert}
+    onReplace={applyReplace}
+    canApply={canApply}
+  />
+) : null}
+```
+
+<Note>
+  The panel automatically switches your editor to preview mode when showing results, allowing you to see how changes will look.
+</Note>
+
+## AI Chat Sidebar
+
+The chat sidebar provides conversational AI assistance:
+
+### Opening the Chat
+
+Access the chat sidebar multiple ways:
+
+- **Keyboard**: Press `⌘J` (desktop) or `Ctrl+J` (Windows/Linux)
+- **Header menu**: Click the menu and select "Chat"
+- **Mobile**: Opens as a full-screen sheet
+
+```typescript
+// Chat toggle shortcut
+// From: components/app-shell.tsx:115-133
+if (e.key === "j" && (e.metaKey || e.ctrlKey) && hasRight) {
+  e.preventDefault();
+  toggleRightSidebar("chat");
+}
+```
+
+### Chat Features
+
+<Tabs>
+  <Tab title="Contextual Awareness">
+    The chat knows about your current file:
+    
+    - Automatically includes file content as context
+    - Shows attached file name in the input area
+    - Can reference specific parts of your note
+    - Remove context file with the X button
+    
+    ```typescript
+    // File context payload
+    // From: components/ai-chat/sidebar-chat.tsx:334-343
+    const filePayload = useMemo<FilePayload | null>(() => {
+      if (!contextFile) return null;
+      return {
+        key: contextFile,
+        contentDigest: digest,
+        excerpt: excerpt.length ? excerpt : null,
+      };
+    }, [contextFile, digest, excerpt]);
+    ```
+  </Tab>
+  
+  <Tab title="Model Selection">
+    Choose from available AI models:
+    
+    - OpenAI models (GPT-4, GPT-3.5, etc.)
+    - Anthropic Claude models
+    - xAI Grok models
+    - Other providers via AI Gateway
+    
+    Filter by:
+    - **Provider**: OpenAI, Anthropic, xAI, etc.
+    - **Features**: Vision, reasoning, tool use, etc.
+    - **Search**: Find models by name
+    
+    ```typescript
+    // Model filtering
+    // From: components/ai-chat/sidebar-chat.tsx:360-385
+    const filteredModelGroups = useMemo(() => {
+      return modelGroups.map((group) => ({
+        provider: group.provider,
+        models: group.models.filter((model) => {
+          const providerMatch = providerFilter === "all" || 
+                                group.provider === providerFilter;
+          const featureMatch = featureFilter === "all" || 
+                              featureTags.has(featureFilter);
+          return providerMatch && featureMatch && matchesQuery(model);
+        }),
+      })).filter((group) => group.models.length > 0);
+    }, [modelGroups, modelSearchQuery, providerFilter, featureFilter]);
+    ```
+  </Tab>
+  
+  <Tab title="Chat History">
+    Conversation history is preserved:
+    
+    - Messages persist across file switches
+    - Scroll through past exchanges
+    - New chat button clears history
+    - Auto-scroll keeps latest visible
+    
+    Start fresh with the **New Chat** button in the header.
+  </Tab>
+</Tabs>
+
+### Quick Prompts
+
+When the chat is empty, suggested prompts appear:
+
+```typescript
+// Suggested prompts (when context file available)
+// From: components/ai-chat/sidebar-chat.tsx:774-800
+<Button onClick={() => sendMessage({ text: "Summarize this note" })}>
+  Summarize
+</Button>
+<Button onClick={() => sendMessage({ text: "Find related notes" })}>
+  Related notes
+</Button>
+<Button onClick={() => sendMessage({ text: "Generate action items" })}>
+  Action items
+</Button>
+```
+
+<Tip>
+  Quick prompts are only available when a file is open, as they reference the current note.
+</Tip>
+
+### Chat Controls
+
+| Control | Action | Shortcut |
+|---------|--------|----------|
+| Text input | Type your message | - |
+| Send | Send message | `Enter` |
+| New line | Add line break in message | `Shift+Enter` |
+| Stop | Stop streaming response | Click stop button |
+| Insert | Add response to editor | Insert button |
+| Copy | Copy response to clipboard | Copy button |
+| Regenerate | Generate new response | Refresh button |
+
+```typescript
+// Send message on Enter
+// From: components/ai-chat/sidebar-chat.tsx:717-724
+const handleKeyDown = useCallback(
+  (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      void handleSubmit();
+    }
+  },
+  [handleSubmit],
+);
+```
+
+## Message Actions
+
+Each AI response includes action buttons:
+
+<CardGroup cols={3}>
+  <Card title="Insert" icon="arrow-down-left">
+    Add the AI response at your cursor position in the editor
+  </Card>
+  <Card title="Copy" icon="copy">
+    Copy the response to your clipboard
+  </Card>
+  <Card title="Regenerate" icon="rotate">
+    Generate a new response to the same prompt
+  </Card>
+</CardGroup>
+
+### Insert into Editor
+
+When you click Insert:
+
+1. The chat sidebar remains open
+2. Content is added to your active note
+3. Editor switches to edit mode if in preview
+4. Toast notification confirms insertion
+
+```typescript
+// Insert handler
+// From: components/ai-chat/sidebar-chat.tsx:684-701
+const handleInsert = useCallback(
+  (message: UIMessage) => {
+    const text = messageToPlainText(message);
+    if (!text.trim()) {
+      toast({
+        title: "No content",
+        description: "Wait for the assistant response before inserting.",
+      });
+      return;
+    }
+    applyAiResult(text, { strategy: "insert" });
+    toast({
+      title: "Inserted",
+      description: "AI response added to the editor.",
+    });
+  },
+  [applyAiResult, toast],
+);
+```
+
+## Model Features
+
+Different models support different capabilities:
+
+| Feature | Icon | Description |
+|---------|------|-------------|
+| Vision | <Icon icon="eye" /> | Can analyze images |
+| Tool use | <Icon icon="wrench" /> | Can call external tools |
+| Reasoning | <Icon icon="brain" /> | Advanced reasoning capabilities |
+| Image generation | <Icon icon="image" /> | Can generate images |
+| File input | <Icon icon="file" /> | Accepts file uploads |
+
+```typescript
+// Model feature detection
+// From: components/ai-chat/sidebar-chat.tsx:1276-1304
+function deriveModelFeatureTags(model: GatewayLanguageModelOption): Set<string> {
+  const tags = new Set(model.tags?.map(tag => normalizeFeatureTag(tag)));
+  
+  const description = (model.description || "").toLowerCase();
+  if (description.includes("vision")) tags.add("vision");
+  if (description.includes("reasoning")) tags.add("reasoning");
+  if (description.includes("tool")) tags.add("tool-use");
+  // ... more feature detection
+  
+  return tags;
+}
+```
+
+<Note>
+  Feature icons appear next to model names in the model selector, helping you choose the right model for your task.
+</Note>
+
+## AI State Management
+
+The AI system uses a state machine for reliable operation:
+
+```typescript
+// AI session states: idle → loading → streaming → success/error
+// Managed by useAiSession hook
+const {
+  state: aiState,
+  panelOpen,
+  isStreaming,
+  start,      // Trigger action
+  cancel,     // Stop generation
+  retry,      // Retry failed request
+  closePanel, // Dismiss panel
+  applyReplace,
+  applyInsert,
+} = useAiSession({ /* ... */ });
+```
+
+States include:
+- `idle`: No active operation
+- `loading`: Request sent, waiting for first token
+- `streaming`: Receiving response
+- `success`: Generation complete
+- `error`: Generation failed
+
+## Limitations
+
+<Warning>
+  AI features require:
+  - Active internet connection
+  - Valid AI Gateway configuration
+  - At least one word of content in the editor
+  - Available API quota/credits
+</Warning>
+
+### When AI is Disabled
+
+AI actions are disabled when:
+- No file is open
+- File is still loading
+- Document is empty
+- Another AI operation is in progress
+- Save conflict exists
+
+```typescript
+// AI disabled conditions
+// From: components/vault-workspace/index.tsx:388
+aiDisabled={!hasFile || status === "loading" || 
+           !hasDocumentContent || aiStreaming}
+```
+
+## Privacy & Data
+
+- Content is sent to AI providers for processing
+- File content includes up to 6,000 characters as context
+- Chat messages are not persisted server-side
+- Model selection is cached locally for 12 hours
+
+```typescript
+// Context excerpt limit
+// From: components/ai-chat/sidebar-chat.tsx:28
+const MAX_EXCERPT_CHARS = 6_000;
+```

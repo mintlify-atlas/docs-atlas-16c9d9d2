@@ -1,0 +1,291 @@
+---
+title: Database Setup
+description: Configure Turso database, run migrations, and set up BetterAuth schema
+---
+
+The Personal Notes application uses Turso (LibSQL) to persist authentication data including users, sessions, accounts, and verification tokens via BetterAuth and Drizzle ORM.
+
+## Prerequisites
+
+- Node.js 20+
+- pnpm 10+
+- A Turso account and database instance
+- Valid `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` in your environment
+
+## Create a Turso Database
+
+<Steps>
+  <Step title="Install Turso CLI">
+    If you haven't already, install the Turso CLI:
+    
+    ```bash
+    # macOS/Linux
+    curl -sSfL https://get.tur.so/install.sh | bash
+    
+    # Or via Homebrew
+    brew install tursodatabase/tap/turso
+    ```
+  </Step>
+  
+  <Step title="Authenticate with Turso">
+    Log in to your Turso account:
+    
+    ```bash
+    turso auth login
+    ```
+  </Step>
+  
+  <Step title="Create a database">
+    Create a new database for your application:
+    
+    ```bash
+    turso db create personal-notes
+    ```
+    
+    Choose a region close to your deployment location for best performance.
+  </Step>
+  
+  <Step title="Get connection details">
+    Retrieve your database URL:
+    
+    ```bash
+    turso db show personal-notes --url
+    ```
+    
+    Create an authentication token:
+    
+    ```bash
+    turso db tokens create personal-notes
+    ```
+    
+    Copy both values to your `.env.local` file:
+    
+    ```bash
+    TURSO_DATABASE_URL=libsql://your-database.turso.io
+    TURSO_AUTH_TOKEN=your_generated_token
+    ```
+  </Step>
+</Steps>
+
+<Info>
+  The application also supports legacy environment variable names: `TURSO_DB_URL` and `TURSO_DB_TOKEN`. Either set will work.
+</Info>
+
+## Database Schema & Migrations
+
+The application uses Drizzle ORM for schema management and migrations. The schema is generated automatically from BetterAuth's requirements.
+
+### Schema Configuration
+
+The Drizzle configuration is defined in `drizzle.config.ts`:
+
+```typescript
+{
+  schema: "./drizzle/schema.ts",
+  out: "./drizzle/migrations",
+  dialect: "turso",
+  dbCredentials: {
+    url: process.env.TURSO_DB_URL,
+    authToken: process.env.TURSO_DB_TOKEN,
+  }
+}
+```
+
+### BetterAuth Schema
+
+BetterAuth manages the following tables:
+- **user** - User profiles from GitHub OAuth
+- **session** - Active user sessions
+- **account** - OAuth account linkages
+- **verification** - Verification tokens for email/auth flows
+
+## Running Migrations
+
+<Steps>
+  <Step title="Generate BetterAuth schema">
+    Regenerate the Drizzle schema from BetterAuth configuration:
+    
+    ```bash
+    pnpm auth:schema
+    ```
+    
+    This writes the schema definition to `drizzle/schema.ts`.
+  </Step>
+  
+  <Step title="Generate SQL migrations">
+    Create migration files from the schema definition:
+    
+    ```bash
+    pnpm db:generate
+    ```
+    
+    This generates SQL migration files in `drizzle/migrations/` based on schema changes.
+  </Step>
+  
+  <Step title="Apply migrations to Turso">
+    Run all pending migrations against your Turso database:
+    
+    ```bash
+    pnpm db:migrate
+    ```
+    
+    This applies migrations to the database specified in your environment variables.
+  </Step>
+</Steps>
+
+<Warning>
+  Ensure your `TURSO_AUTH_TOKEN` has **write access** to the database. Read-only tokens will cause migrations to fail with a 401 error.
+</Warning>
+
+## Migration Workflow
+
+Whenever you update BetterAuth configuration or schema:
+
+1. Run `pnpm auth:schema` to regenerate the schema
+2. Run `pnpm db:generate` to create migration files
+3. Review the generated SQL in `drizzle/migrations/`
+4. Run `pnpm db:migrate` to apply changes
+
+### Verify Schema Changes
+
+Before applying migrations, inspect the generated SQL:
+
+```bash
+# Generated migrations are in:
+drizzle/migrations/
+
+# Each migration includes:
+# - XXXX_migration_name.sql (SQL statements)
+# - meta.json (Drizzle metadata)
+```
+
+## Troubleshooting
+
+### 401 Unauthorized Error
+
+If `pnpm db:migrate` fails with a 401 error:
+
+<Steps>
+  <Step title="Verify token validity">
+    Check that your `TURSO_AUTH_TOKEN` is correct:
+    
+    ```bash
+    turso db tokens list personal-notes
+    ```
+  </Step>
+  
+  <Step title="Regenerate token">
+    Create a fresh authentication token:
+    
+    ```bash
+    turso db tokens create personal-notes
+    ```
+    
+    Update your `.env.local` with the new token.
+  </Step>
+  
+  <Step title="Check token permissions">
+    Ensure the token has write access. Tokens created via `turso db tokens create` have full access by default.
+  </Step>
+</Steps>
+
+### Missing Environment Variables
+
+If migrations fail with "Missing environment variable":
+
+```bash
+# Verify both variables are set:
+echo $TURSO_DATABASE_URL
+echo $TURSO_AUTH_TOKEN
+
+# Or check your .env.local file:
+cat .env.local | grep TURSO
+```
+
+Drizzle Config reads from both `.env.local` (with override priority) and `.env`.
+
+### Connection Timeout
+
+If migrations time out:
+- Check your internet connection
+- Verify the database URL is correct
+- Ensure the database exists: `turso db show personal-notes`
+
+## Production Considerations
+
+### Database Replicas
+
+For global applications, create database replicas:
+
+```bash
+# Add a replica in another region
+turso db replicate personal-notes --region ams
+
+# List all replicas
+turso db show personal-notes
+```
+
+Replicas automatically sync with the primary database.
+
+### Migration Strategy
+
+For production deployments:
+
+1. **Test migrations locally** against a development database
+2. **Run migrations in CI/CD** before deploying application code
+3. **Use database branching** for testing schema changes:
+   ```bash
+   # Create a branch for testing
+   turso db create personal-notes-staging --from-db personal-notes
+   ```
+
+### Backup & Recovery
+
+Turso automatically backs up your database. To restore:
+
+```bash
+# List available backups
+turso db backup list personal-notes
+
+# Restore from backup
+turso db restore personal-notes <backup-id>
+```
+
+## Local Development
+
+For local development, you can use a local SQLite file:
+
+```bash
+# .env.local
+TURSO_DATABASE_URL=file:local.db
+# TURSO_AUTH_TOKEN not required for local files
+```
+
+Or use Turso's local development mode:
+
+```bash
+turso dev --db-file local.db
+```
+
+## Schema Validation
+
+The application validates the database connection at startup in `lib/db.ts`:
+
+```typescript
+// Requires TURSO_DATABASE_URL or TURSO_DB_URL
+// TURSO_AUTH_TOKEN or TURSO_DB_TOKEN is optional for local files
+const tursoUrl = requireEnv("TURSO_DATABASE_URL", "TURSO_DB_URL");
+const tursoAuthToken = optionalEnv("TURSO_DB_TOKEN", "TURSO_AUTH_TOKEN");
+```
+
+<Info>
+  If authentication fails at runtime, check that your session token hasn't expired. BetterAuth will attempt to refresh sessions automatically.
+</Info>
+
+## Next Steps
+
+After setting up the database:
+
+1. Configure GitHub OAuth credentials (see [Environment Variables](/deployment/environment-variables#github-oauth-betterauth))
+2. Test authentication flow locally with `pnpm dev`
+3. Deploy your application (see [Production Deployment](/deployment/production))

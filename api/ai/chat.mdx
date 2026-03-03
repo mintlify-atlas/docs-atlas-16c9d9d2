@@ -1,0 +1,157 @@
+---
+title: 'POST /api/ai/chat'
+description: 'Stream AI chat responses with file context'
+---
+
+Generates AI responses to user messages with optional file context. Returns a streaming text response using the Vercel AI SDK.
+
+## Authentication
+
+Requires valid session authentication via cookies or API token.
+
+## Request
+
+```bash
+POST /api/ai/chat
+```
+
+### Body Parameters
+
+<ParamField body="messages" type="UIMessage[]" required>
+  Array of conversation messages in Vercel AI SDK format. Maximum 24 messages (older messages are truncated).
+  
+  <Expandable title="message structure">
+    <ParamField body="role" type="string" required>
+      Message role: `"user"`, `"assistant"`, or `"system"`
+    </ParamField>
+    
+    <ParamField body="content" type="string" required>
+      Message text content
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="file" type="object">
+  Optional file context to ground the AI response
+  
+  <Expandable title="properties">
+    <ParamField body="key" type="string">
+      S3 object key for the file (relative path in vault)
+    </ParamField>
+    
+    <ParamField body="contentDigest" type="string">
+      Content hash (currently unused, reserved for future cache validation)
+    </ParamField>
+    
+    <ParamField body="excerpt" type="string">
+      File content excerpt. If provided, avoids S3 fetch. If omitted and `key` is provided, content is fetched from S3.
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="model" type="string">
+  AI model identifier. Defaults to `AI_CHAT_MODEL` or `AI_MODEL` environment variable, or the system default.
+</ParamField>
+
+### Constraints
+
+- **Messages**: Maximum 24 messages; older messages are automatically dropped
+- **Context**: File content is truncated to 6,000 characters
+- **Timeout**: 30 seconds maximum duration
+- **Temperature**: Fixed at 0.4 for consistent responses
+
+## Response
+
+Returns a **text stream** using Vercel AI SDK's `toTextStreamResponse()` format.
+
+### Response Headers
+
+<ResponseField name="x-ai-context-truncated" type="string">
+  `"1"` if file content was truncated, `"0"` otherwise
+</ResponseField>
+
+<ResponseField name="x-ai-context-source" type="string">
+  Context source: `"provided"`, `"s3"`, `"none"`, or `"error"`
+</ResponseField>
+
+<ResponseField name="Content-Type" type="string">
+  `text/plain; charset=utf-8` for streaming response
+</ResponseField>
+
+### Status Codes
+
+- `200 OK`: Stream initiated successfully
+- `400 Bad Request`: Invalid request body or no messages provided
+- `401 Unauthorized`: Authentication required
+- `500 Internal Server Error`: AI generation failed
+
+## Example
+
+```bash Request
+curl -X POST https://app.example.com/api/ai/chat \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "messages": [
+      {
+        "role": "user",
+        "content": "What are the main points in this document?"
+      }
+    ],
+    "file": {
+      "key": "projects/roadmap.md",
+      "excerpt": "# Roadmap\n\n## Q1 Goals\n- Improve performance\n- Add dark mode"
+    }
+  }'
+```
+
+```text Response (streaming)
+The document outlines Q1 goals focusing on two main areas:
+
+1. **Performance improvements** - enhancing system speed and efficiency
+2. **Dark mode** - adding a dark color scheme option
+
+These initiatives appear to prioritize user experience enhancements.
+```
+
+## JavaScript Example
+
+```javascript
+import { useChat } from 'ai/react';
+
+function ChatComponent({ fileKey, fileExcerpt }) {
+  const { messages, input, handleInputChange, handleSubmit } = useChat({
+    api: '/api/ai/chat',
+    body: {
+      file: fileKey ? { key: fileKey, excerpt: fileExcerpt } : null,
+    },
+  });
+
+  return (
+    <div>
+      {messages.map(msg => (
+        <div key={msg.id}>
+          <strong>{msg.role}:</strong> {msg.content}
+        </div>
+      ))}
+      <form onSubmit={handleSubmit}>
+        <input value={input} onChange={handleInputChange} />
+        <button type="submit">Send</button>
+      </form>
+    </div>
+  );
+}
+```
+
+## Security Features
+
+- **Secret redaction**: Automatically redacts API keys, passwords, tokens, and private keys from file context
+- **Content sanitization**: Removes control characters and normalizes line endings
+- **Size limits**: Enforces maximum context size to prevent token budget exhaustion
+
+## Use Cases
+
+- File-aware Q&A assistant
+- Document summarization with chat interface
+- Writing suggestions based on current file
+- Multi-turn conversations about vault content

@@ -1,0 +1,373 @@
+---
+title: Markdown Editor
+description: Write and edit notes with the BlockNote rich text editor and markdown preview
+---
+
+The markdown editor provides a rich writing experience powered by BlockNote, with real-time preview, autosave, and seamless mode switching.
+
+## Editor Modes
+
+Switch between edit and preview modes to write and review your notes:
+
+<Tabs>
+  <Tab title="Edit Mode">
+    The BlockNote editor provides a WYSIWYG (What You See Is What You Get) editing experience:
+    
+    - Visual markdown editing with formatting toolbar
+    - Real-time block-based editing
+    - Keyboard shortcuts for common formatting
+    - Drag and drop block reordering
+    
+    ```tsx
+    // Editor initialization
+    // From: components/blocknote-editor.tsx:20-22
+    const editor = useCreateBlockNote({
+      initialContent: undefined,
+    });
+    ```
+  </Tab>
+  <Tab title="Preview Mode">
+    See the rendered markdown output:
+    
+    - Clean, distraction-free reading view
+    - Syntax highlighting for code blocks
+    - Proper rendering of all markdown elements
+    - Responsive layout for different screen sizes
+    
+    The preview uses the same markdown parsing as the public view, ensuring consistency.
+  </Tab>
+</Tabs>
+
+### Switching Modes
+
+Toggle between modes using:
+- **Desktop**: Click the edit/preview icon in the header
+- **Mobile**: Open the menu (three dots) and select Edit or Preview
+- **Keyboard**: Press `E` (when available in shortcuts)
+
+<Note>
+  Mode changes are instant - your edits are preserved when switching between edit and preview.
+</Note>
+
+## BlockNote Editor
+
+The editor is built on [BlockNote](https://www.blocknotejs.org/), a modern block-based editor:
+
+### Block-Based Editing
+
+Everything in the editor is a block:
+- Paragraphs
+- Headings (H1-H6)
+- Lists (ordered and unordered)
+- Code blocks
+- Blockquotes
+
+```typescript
+// Blocks are parsed from markdown on load
+// From: components/blocknote-editor.tsx:25-31
+if (editor && value) {
+  const loadContent = async () => {
+    const blocks = await editor.tryParseMarkdownToBlocks(value);
+    editor.replaceBlocks(editor.document, blocks);
+  };
+  loadContent();
+}
+```
+
+### Selection Tracking
+
+The editor tracks text selection for AI features:
+
+```typescript
+// Selection tracking for AI actions
+// From: components/blocknote-editor.tsx:40-89
+const handleSelectionChange = async () => {
+  const selection = editor.getSelection();
+  if (!selection) {
+    setSelection(null);
+    return;
+  }
+
+  // Calculate character positions
+  // Walk through all blocks to find selection boundaries
+  let from = 0;
+  let to = 0;
+  // ... position calculation logic
+  
+  setSelection({ from, to });
+};
+```
+
+<Tip>
+  Select text in the editor to enable AI actions like "Improve Writing" or "Summarize" on just that portion.
+</Tip>
+
+## Autosave
+
+Changes are automatically saved as you type:
+
+### Save Triggers
+
+1. **Automatic**: Changes trigger autosave after a short delay
+2. **Manual**: Press `⌘S` to save immediately
+3. **Before navigation**: Saves before switching files
+
+```typescript
+// Manual save with keyboard shortcut
+// From: components/app-shell.tsx:136-143
+if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+  e.preventDefault();
+  const editorState = useEditorStore.getState();
+  if (editorState.fileKey && editorState.dirty && 
+      editorState.status !== "saving") {
+    void editorState.save("manual");
+  }
+}
+```
+
+### Save States
+
+The editor shows different states in the footer:
+
+| State | Description | Action |
+|-------|-------------|--------|
+| `Saved • [timestamp]` | All changes saved | None needed |
+| `Unsaved changes` | Changes pending save | Wait for autosave or press ⌘S |
+| `Saving...` | Save in progress | Wait for completion |
+| `Failed to save` | Save error occurred | Click "Retry" to try again |
+| `Save blocked by remote changes` | Conflict detected | Click "Reload" to fetch latest |
+
+<Warning>
+  If you navigate away with unsaved changes, the browser will prompt you to confirm. This prevents accidental data loss.
+</Warning>
+
+### Conflict Resolution
+
+If the file was modified externally while you were editing:
+
+1. The editor detects the conflict using ETag validation
+2. Save is blocked to prevent overwriting remote changes
+3. You see "Save blocked by remote changes" in the footer
+4. Click **Reload** to fetch the latest version (discards your changes)
+5. Or manually merge changes by copying your edits first
+
+```typescript
+// Conflict detection in the save flow
+// Server validates ETag to detect concurrent modifications
+```
+
+## Markdown Features
+
+### Supported Syntax
+
+The editor supports full markdown syntax:
+
+<AccordionGroup>
+  <Accordion title="Text Formatting" icon="bold">
+    - **Bold** text with `**text**` or `__text__`
+    - *Italic* text with `*text*` or `_text_`
+    - ~~Strikethrough~~ with `~~text~~`
+    - `Inline code` with backticks
+  </Accordion>
+  
+  <Accordion title="Headings" icon="heading">
+    ```markdown
+    # Heading 1
+    ## Heading 2
+    ### Heading 3
+    #### Heading 4
+    ##### Heading 5
+    ###### Heading 6
+    ```
+  </Accordion>
+  
+  <Accordion title="Lists" icon="list">
+    **Unordered Lists:**
+    ```markdown
+    - Item 1
+    - Item 2
+      - Nested item
+    ```
+    
+    **Ordered Lists:**
+    ```markdown
+    1. First item
+    2. Second item
+       1. Nested item
+    ```
+  </Accordion>
+  
+  <Accordion title="Links & Images" icon="link">
+    **Links:**
+    ```markdown
+    [Link text](https://example.com)
+    ```
+    
+    **Images:**
+    ```markdown
+    ![Alt text](https://example.com/image.jpg)
+    ```
+  </Accordion>
+  
+  <Accordion title="Code Blocks" icon="code">
+    ````markdown
+    ```javascript
+    function hello() {
+      console.log("Hello, world!");
+    }
+    ```
+    ````
+  </Accordion>
+  
+  <Accordion title="Blockquotes" icon="quote">
+    ```markdown
+    > This is a blockquote
+    > It can span multiple lines
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Editor Integration
+
+The editor integrates with the editor store for state management:
+
+```typescript
+// Editor store integration
+// From: components/blocknote-editor.tsx:17-18
+const registerEditorView = useEditorStore((state) => state.registerEditorView);
+const setSelection = useEditorStore((state) => state.setSelection);
+```
+
+### Content Synchronization
+
+Changes flow through the store:
+
+1. User types in the editor
+2. `onChange` handler converts blocks to markdown
+3. Markdown is stored in the editor state
+4. Autosave triggers after debounce
+5. Changes are persisted to S3
+
+```typescript
+// Change handler converts blocks to markdown
+// From: components/blocknote-editor.tsx:104-108
+const handleChange = async () => {
+  if (!editor) return;
+  const markdown = await editor.blocksToMarkdownLossy(editor.document);
+  onChange(markdown);
+};
+```
+
+## Preview Mode
+
+The preview renders markdown with the same parser used for public pages:
+
+### Preview Features
+
+- Syntax-highlighted code blocks
+- Properly styled headings and lists
+- Rendered links and images
+- Blockquote styling
+- Responsive layout
+
+```tsx
+// Preview component
+// From: components/vault-workspace/index.tsx:495-499
+if (mode === "edit") {
+  return <MarkdownEditor value={content} onChange={setContent} />;
+}
+
+return (
+  <div className="rounded-lg w-full overflow-hidden px-4 md:px-0">
+    <MarkdownPreview content={content} parseIncompleteMarkdown={false} />
+  </div>
+);
+```
+
+### Preview Consistency
+
+The preview uses the same rendering pipeline as public pages, ensuring what you see in preview matches what readers see:
+
+- Same markdown parser
+- Same syntax highlighting
+- Same image handling
+- Same link processing
+
+## Layout Controls
+
+### Centered Layout
+
+Toggle between full-width and centered reading layouts:
+
+```typescript
+// Centered layout toggle
+// From: components/vault-workspace/index.tsx:504
+const contentMaxWidth = centered ? "64rem" : "100%";
+```
+
+- **Centered**: 64rem max width, ideal for reading
+- **Full width**: Uses entire viewport, good for editing
+
+Toggle with the expand/shrink button in the header (desktop only).
+
+## File Navigation
+
+Navigate between files in the same folder:
+
+- **Previous file**: Click ← or press the previous button
+- **Next file**: Click → or press the next button
+
+<Note>
+  Navigation buttons only appear on desktop (lg breakpoint and above) and only work between files in the same parent folder.
+</Note>
+
+## Reading Time
+
+The editor calculates estimated reading time shown in the footer:
+
+```typescript
+// Reading time calculation
+// From: components/app-shell.tsx:813-830
+function computeReadingTimeLabel(content: string, hasFile: boolean): string {
+  if (!hasFile) return "—";
+  
+  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  if (!words) return "< 1 min";
+  
+  const minutes = words / 200; // 200 words per minute
+  if (minutes < 1) return "< 1 min";
+  if (minutes < 60) return `${Math.round(minutes)} min`;
+  
+  const hours = minutes / 60;
+  return `${hours.toFixed(1)} hr`;
+}
+```
+
+Reading time assumes 200 words per minute and appears in the bottom-right footer.
+
+## Keyboard Shortcuts
+
+| Shortcut | Action | Context |
+|----------|--------|----------|
+| `⌘S` | Save current file | Any mode |
+| `E` | Toggle edit/preview | Header menu (mobile) |
+| Standard text editing | Cut, copy, paste, undo, redo | Edit mode |
+
+<Tip>
+  BlockNote supports standard text editing shortcuts. Use ⌘B for bold, ⌘I for italic, etc.
+</Tip>
+
+## Performance
+
+The editor is optimized for large documents:
+
+- Block-based rendering only shows visible content
+- Debounced save prevents excessive API calls
+- Efficient markdown parsing with lossy conversion
+- Lazy loading for preview mode
+
+```typescript
+// Efficient block-to-markdown conversion
+// Uses "lossy" conversion for performance
+await editor.blocksToMarkdownLossy(editor.document);
+```

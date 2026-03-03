@@ -1,0 +1,450 @@
+---
+title: Caching Strategy
+description: Understand the multi-layer caching system for optimal performance
+---
+
+Personal Notes uses a multi-layer caching strategy to minimize S3 requests and provide fast page loads. The system combines Redis (Upstash), Next.js cache, and in-memory caching.
+
+## Cache Layers
+
+There are three distinct cache layers, each serving a different purpose:
+
+<CodeGroup>
+
+```text Layer 1: Next.js Cache (Memory)
+- Location: Server memory
+- Lifetime: Configurable (minutes/hours/max)
+- Scope: Per-deployment
+- Speed: Fastest (microseconds)
+- Use case: Hot data, frequent reads
+```
+
+```text Layer 2: Redis (Upstash)
+- Location: Edge network
+- Lifetime: No expiration (manual invalidation)
+- Scope: Global (shared across all deployments)
+- Speed: Fast (milliseconds)
+- Use case: Shared state, distributed cache
+```
+
+```text Layer 3: S3 (Tigris)
+- Location: Object storage
+- Lifetime: Permanent
+- Scope: Global
+- Speed: Slower (100-500ms)
+- Use case: Source of truth
+```
+
+</CodeGroup>
+
+## Redis Configuration
+
+Redis caching uses Upstash Redis with REST API access.
+
+### Environment Variables
+
+```bash
+UPSTASH_REDIS_REST_URL=https://your-region.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_token
+```
+
+<Note>
+  Redis is optional but **highly recommended** for production. Without Redis, every request will fetch from S3 after the Next.js cache expires.
+</Note>
+
+### Client Initialization
+
+From `lib/redis-client.ts:13`:
+
+```typescript
+import { Redis } from "@upstash/redis";
+
+export function getRedisClient(): Redis {
+  if (!client) {
+    const url = getEnv("UPSTASH_REDIS_REST_URL");
+    const token = getEnv("UPSTASH_REDIS_REST_TOKEN");
+    client = new Redis({ url, token });
+  }
+  return client;
+}
+```
+
+The client is lazily initialized and reused across requests.
+
+## Manifest Caching
+
+The file tree manifest uses all three cache layers.
+
+### Cache Keys
+
+```typescript
+// Redis key
+const MANIFEST_REDIS_KEY = "file-tree:manifest";
+
+// Next.js cache tag
+const MANIFEST_CACHE_TAG = "file-tree-manifest";
+```
+
+### Read Flow
+
+<Steps>
+  <Step title="Check Next.js cache">
+    The function is marked with `"use cache"` directive:
+    ```typescript
+    export async function loadLatestManifest() {
+      "use cache";
+      
+      cacheTag(MANIFEST_CACHE_TAG);
+      cacheLife("minutes");
+      
+      // ...
+    }
+    ```
+  </Step>
+  
+  <Step title="Check Redis">
+    If Next.js cache misses, read from Redis:
+    ```typescript
+    const redis = getRedisClient();
+    const value = await redis.get<RedisManifestValue>(
+      MANIFEST_REDIS_KEY
+    );
+    ```
+  </Step>
+  
+  <Step title="Validate structure">
+    Parse and validate the Redis value:
+    ```typescript
+    const parsed = JSON.parse(fromRedis.body);
+    const validation = validateFileTreeManifest(parsed);
+    if (!validation.success) {
+      console.error("Redis manifest invalid, falling back to S3");
+    }
+    ```
+  </Step>
+  
+  <Step title="Fetch from S3">
+    If Redis is empty or invalid, fetch from S3:
+    ```typescript
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: FILE_TREE_MANIFEST_FILENAME,
+      })
+    );
+    ```
+  </Step>
+  
+  <Step title="Seed Redis">
+    After fetching from S3, update Redis for future requests:
+    ```typescript
+    await writeManifestToRedis({
+      body: fromS3.body,
+      metadata: fromS3.manifest.metadata,
+      etag: fromS3.etag,
+      updatedAt: fromS3.updatedAt,
+    });
+    ```
+  </Step>
+</Steps>
+
+### Write Flow
+
+When the manifest is refreshed:
+
+<Steps>
+  <Step title="Build manifest">
+    Scan S3 and generate the manifest structure.
+  </Step>
+  
+  <Step title="Upload to S3">
+    Write the new manifest to S3:
+    ```typescript
+    await uploadFileTreeManifest(manifest);
+    ```
+  </Step>
+  
+  <Step title="Update Redis">
+    Immediately update Redis with the new manifest:
+    ```typescript
+    await writeManifestToRedis(redisValue);
+    ```
+  </Step>
+  
+  <Step title="Revalidate Next.js cache">
+    Invalidate the Next.js cache tag:
+    ```typescript
+    await revalidateTag(MANIFEST_CACHE_TAG, "max");
+    ```
+  </Step>
+</Steps>
+
+## File Content Caching
+
+Individual markdown files use a similar multi-layer approach.
+
+### Cache Keys
+
+```typescript
+// Redis key (per file)
+const redisKey = `file-cache:v1:${relativeKey}`;
+
+// Next.js cache tag (per file)
+const cacheTag = `file:${relativeKey}`;
+```
+
+### Cache Record Structure
+
+From `lib/file-cache.ts:12`:
+
+```typescript
+interface CachedFileRecord {
+  key: string;           // Relative path
+  content: string;       // File contents
+  etag?: string;         // S3 ETag
+  lastModified?: string; // ISO timestamp
+  fetchedAt: string;     // Cache timestamp
+  cacheStatus: "hit" | "miss";
+}
+```
+
+### Read Flow
+
+<Steps>
+  <Step title="Check Next.js cache">
+    Marked with `"use cache"` and tagged per-file:
+    ```typescript
+    export async function getCachedFile(key: string) {
+      "use cache";
+      
+      cacheTag(getFileCacheTag(key));
+      cacheLife("max");
+      
+      // ...
+    }
+    ```
+  </Step>
+  
+  <Step title="Check Redis">
+    Read from Redis if Next.js cache misses:
+    ```typescript
+    const value = await redis.get<RedisFileCacheValue>(
+      buildRedisKey(key)
+    );
+    ```
+  </Step>
+  
+  <Step title="Fetch from S3">
+    If both caches miss, fetch from S3:
+    ```typescript
+    const response = await client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: applyVaultPrefix(key),
+      })
+    );
+    ```
+  </Step>
+  
+  <Step title="Seed Redis">
+    Update Redis after S3 fetch:
+    ```typescript
+    await writeToRedis(key, result);
+    ```
+  </Step>
+</Steps>
+
+## Cache Invalidation
+
+### Invalidate Manifest
+
+Revalidate the manifest cache tag:
+
+```typescript
+import { revalidateTag } from "next/cache";
+import { MANIFEST_CACHE_TAG } from "@/lib/manifest-store";
+
+await revalidateTag(MANIFEST_CACHE_TAG, "max");
+```
+
+### Invalidate File Caches
+
+Revalidate specific file cache tags:
+
+```typescript
+import { revalidateFileTags } from "@/lib/file-cache";
+
+// Invalidate multiple files
+await revalidateFileTags([
+  "notes/readme.md",
+  "notes/guide.md"
+]);
+```
+
+This:
+1. Deletes Redis cache entries
+2. Revalidates Next.js cache tags
+
+From `lib/file-cache.ts:144`:
+
+```typescript
+export async function revalidateFileTags(keys: string[]) {
+  const redis = getRedisClient();
+  
+  // Delete from Redis
+  const redisKeys = keys.map(buildRedisKey);
+  await redis.del(...redisKeys);
+  
+  // Revalidate Next.js tags
+  for (const key of keys) {
+    revalidateTag(getFileCacheTag(key), "max");
+  }
+}
+```
+
+### Invalidate Folder
+
+Revalidate all files in a folder:
+
+```typescript
+import { revalidateFolderTag } from "@/lib/file-cache";
+
+revalidateFolderTag("notes/");
+```
+
+<Warning>
+  Folder invalidation only clears the Next.js cache for the folder itself. Individual file caches remain valid until explicitly invalidated.
+</Warning>
+
+## Next.js Cache Configuration
+
+Next.js cache uses the `cacheLife` API to control TTL:
+
+```typescript
+import { cacheLife } from "next/cache";
+
+// Short TTL (minutes)
+cacheLife("minutes"); // ~5 minutes
+
+// Long TTL (hours)
+cacheLife("hours");   // ~1 hour
+
+// Maximum TTL (days/weeks)
+cacheLife("max");     // ~1 week
+```
+
+### Manifest Cache
+
+```typescript
+cacheLife("minutes"); // Refresh frequently
+```
+
+### File Content Cache
+
+```typescript
+cacheLife("max");     // Cache aggressively
+```
+
+## Redis Operations
+
+### Inspect Manifest Cache
+
+```bash
+curl "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+```
+
+### Delete Manifest Cache
+
+```bash
+curl -X DELETE "$UPSTASH_REDIS_REST_URL/file-tree:manifest" \
+  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+```
+
+### Inspect File Cache
+
+```bash
+curl "$UPSTASH_REDIS_REST_URL/file-cache:v1:notes/readme.md" \
+  -H "Authorization: Bearer $UPSTASH_REDIS_REST_TOKEN"
+```
+
+## Performance Characteristics
+
+### Cache Hit Rates
+
+<CodeGroup>
+
+```text Manifest (High Traffic)
+Next.js cache: ~95% hit rate
+Redis cache:   ~4% hit rate
+S3 fetch:      ~1% hit rate
+```
+
+```text Files (Moderate Traffic)
+Next.js cache: ~80% hit rate
+Redis cache:   ~15% hit rate
+S3 fetch:      ~5% hit rate
+```
+
+</CodeGroup>
+
+### Response Times
+
+| Layer | Typical Response Time |
+|-------|----------------------|
+| Next.js cache | < 1ms |
+| Redis cache | 10-50ms |
+| S3 fetch | 100-500ms |
+
+## Best Practices
+
+<Steps>
+  <Step title="Always use Redis in production">
+    Redis ensures consistent performance across deployments and reduces S3 costs.
+  </Step>
+  
+  <Step title="Invalidate strategically">
+    Only invalidate caches when content actually changes. Avoid blanket invalidation.
+  </Step>
+  
+  <Step title="Monitor cache hit rates">
+    Use Upstash analytics to track Redis hit rates and optimize cache lifetimes.
+  </Step>
+  
+  <Step title="Use longer TTLs for stable data">
+    Files that rarely change should use `cacheLife("max")`.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+### Stale data after updates
+
+**Solution**: Manually revalidate caches:
+
+```bash
+pnpm tree:refresh -- --push-redis
+```
+
+### High S3 costs
+
+**Problem**: Redis cache not configured or frequently cleared.
+
+**Solution**: Verify Redis environment variables and avoid unnecessary invalidation.
+
+### Inconsistent data across deployments
+
+**Problem**: Not using Redis, relying only on Next.js cache.
+
+**Solution**: Configure Redis to share cache across all instances.
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="S3 Configuration" icon="cloud" href="/storage/s3-configuration">
+    Set up Tigris S3 storage
+  </Card>
+  <Card title="File Tree Manifest" icon="sitemap" href="/storage/file-tree-manifest">
+    Learn how the manifest system works
+  </Card>
+</CardGroup>

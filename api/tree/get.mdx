@@ -1,0 +1,153 @@
+---
+title: 'GET /api/tree'
+description: 'Retrieve the cached file tree manifest'
+---
+
+Returns the latest file tree manifest containing metadata and hierarchical structure of all markdown files and folders in the vault.
+
+## Authentication
+
+Requires valid session authentication via cookies or API token.
+
+## Request
+
+```bash
+GET /api/tree
+```
+
+### Headers
+
+<ParamField header="If-None-Match" type="string">
+  ETag value from a previous response. Returns `304 Not Modified` if the manifest hasn't changed.
+</ParamField>
+
+## Response
+
+<ResponseField name="metadata" type="object" required>
+  Manifest metadata including version, timestamp, and checksum
+  
+  <Expandable title="properties">
+    <ResponseField name="version" type="integer" required>
+      Schema version number (currently `1`)
+    </ResponseField>
+    
+    <ResponseField name="generatedAt" type="string" required>
+      ISO 8601 timestamp when the manifest was generated
+    </ResponseField>
+    
+    <ResponseField name="checksum" type="string" required>
+      Hex-encoded MD5 checksum of the manifest payload
+    </ResponseField>
+    
+    <ResponseField name="nodeCount" type="integer" required>
+      Total number of nodes (files + folders) in the tree
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="nodes" type="array" required>
+  Array of all file and folder nodes in the tree
+  
+  <Expandable title="node properties">
+    <ResponseField name="id" type="string" required>
+      Stable identifier matching the node's relative path (folders end with `/`)
+    </ResponseField>
+    
+    <ResponseField name="type" type="string" required>
+      Node type: `"file"` or `"folder"`
+    </ResponseField>
+    
+    <ResponseField name="name" type="string" required>
+      Display name without path information
+    </ResponseField>
+    
+    <ResponseField name="path" type="string" required>
+      Path relative to vault root (matches `id`)
+    </ResponseField>
+    
+    <ResponseField name="parentId" type="string | null" required>
+      ID of the parent folder, or `null` for root-level nodes
+    </ResponseField>
+    
+    <ResponseField name="lastModified" type="string">
+      ISO 8601 timestamp of last modification (from S3 metadata)
+    </ResponseField>
+    
+    <ResponseField name="etag" type="string">
+      S3 ETag for cache validation (file nodes only)
+    </ResponseField>
+    
+    <ResponseField name="size" type="integer">
+      File size in bytes (file nodes only)
+    </ResponseField>
+    
+    <ResponseField name="childrenIds" type="string[]">
+      Array of child node IDs in sorted order (folder nodes only)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="rootIds" type="string[]" required>
+  Array of top-level node IDs (nodes with no parent)
+</ResponseField>
+
+### Response Headers
+
+- `ETag`: Quoted ETag value for cache validation
+- `Cache-Control`: `private, no-cache, must-revalidate`
+- `X-Manifest-Source`: `"redis"` or `"s3"` indicating the data source
+
+### Status Codes
+
+- `200 OK`: Manifest returned successfully
+- `304 Not Modified`: Manifest hasn't changed (ETag match)
+- `401 Unauthorized`: Authentication required
+- `503 Service Unavailable`: Manifest unavailable
+
+## Example
+
+```bash Request
+curl https://app.example.com/api/tree \
+  -H "Cookie: session=..." \
+  -H "If-None-Match: \"abc123\""
+```
+
+```json Response
+{
+  "metadata": {
+    "version": 1,
+    "generatedAt": "2026-03-03T10:30:00.000Z",
+    "checksum": "a1b2c3d4e5f6789012345678901234ab",
+    "nodeCount": 42
+  },
+  "nodes": [
+    {
+      "id": "projects/",
+      "type": "folder",
+      "name": "projects",
+      "path": "projects/",
+      "parentId": null,
+      "childrenIds": ["projects/roadmap.md"],
+      "lastModified": "2026-03-01T12:00:00.000Z"
+    },
+    {
+      "id": "projects/roadmap.md",
+      "type": "file",
+      "name": "roadmap.md",
+      "path": "projects/roadmap.md",
+      "parentId": "projects/",
+      "etag": "\"abc123def456\"",
+      "size": 2048,
+      "lastModified": "2026-03-02T14:30:00.000Z"
+    }
+  ],
+  "rootIds": ["projects/", "readme.md"]
+}
+```
+
+## Use Cases
+
+- Build file navigation UI
+- Implement file search and filtering
+- Track changes using ETags for efficient polling
+- Cache manifest locally and refresh only when changed

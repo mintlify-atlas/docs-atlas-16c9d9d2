@@ -1,0 +1,121 @@
+---
+title: 'POST /api/tree/refresh'
+description: 'Trigger a file tree manifest refresh'
+---
+
+Forces a rebuild of the file tree manifest by scanning the S3 vault and updating the cached manifest in Redis.
+
+## Authentication
+
+Requires both:
+1. Valid session authentication via cookies or API token
+2. Refresh secret via `Authorization` header or `X-Refresh-Secret` header
+
+## Request
+
+```bash
+POST /api/tree/refresh
+```
+
+### Headers
+
+<ParamField header="Authorization" type="string">
+  Bearer token containing the refresh secret: `Bearer {TREE_REFRESH_SECRET}`
+</ParamField>
+
+<ParamField header="X-Refresh-Secret" type="string">
+  Alternative header for the refresh secret (use instead of Authorization)
+</ParamField>
+
+<Info>
+  The refresh secret is configured via the `TREE_REFRESH_SECRET` environment variable. If not set, the endpoint is unsecured (development only).
+</Info>
+
+## Response
+
+<ResponseField name="status" type="string" required>
+  Always `"completed"` on success
+</ResponseField>
+
+<ResponseField name="metadata" type="object" required>
+  Metadata from the refreshed manifest
+  
+  <Expandable title="properties">
+    <ResponseField name="version" type="integer" required>
+      Schema version number
+    </ResponseField>
+    
+    <ResponseField name="generatedAt" type="string" required>
+      ISO 8601 timestamp when the manifest was generated
+    </ResponseField>
+    
+    <ResponseField name="checksum" type="string" required>
+      Hex-encoded checksum of the manifest
+    </ResponseField>
+    
+    <ResponseField name="nodeCount" type="integer" required>
+      Total number of nodes in the refreshed tree
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="etag" type="string | null" required>
+  New ETag value for the manifest, or `null` if unavailable
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string" required>
+  ISO 8601 timestamp when the refresh completed
+</ResponseField>
+
+<ResponseField name="statusUrl" type="string" required>
+  Relative URL to check manifest status: `"/api/tree/status"`
+</ResponseField>
+
+### Status Codes
+
+- `200 OK`: Refresh completed successfully
+- `401 Unauthorized`: Missing or invalid refresh secret
+- `500 Internal Server Error`: Refresh failed
+
+## Example
+
+```bash Request with Bearer token
+curl -X POST https://app.example.com/api/tree/refresh \
+  -H "Cookie: session=..." \
+  -H "Authorization: Bearer secret_abc123"
+```
+
+```bash Request with X-Refresh-Secret
+curl -X POST https://app.example.com/api/tree/refresh \
+  -H "Cookie: session=..." \
+  -H "X-Refresh-Secret: secret_abc123"
+```
+
+```json Response
+{
+  "status": "completed",
+  "metadata": {
+    "version": 1,
+    "generatedAt": "2026-03-03T10:45:00.000Z",
+    "checksum": "f1e2d3c4b5a6978012345678901234cd",
+    "nodeCount": 43
+  },
+  "etag": "\"xyz789\"",
+  "updatedAt": "2026-03-03T10:45:01.234Z",
+  "statusUrl": "/api/tree/status"
+}
+```
+
+## Use Cases
+
+- Manually trigger refresh after bulk file operations
+- Integrate with CI/CD pipelines to refresh after content updates
+- Webhook handler for S3 bucket notifications
+- Admin dashboard refresh button
+
+## Implementation Notes
+
+- The refresh scans all objects in the S3 vault
+- Updates both the S3 manifest file and Redis cache
+- Next.js cache tags are revalidated automatically
+- The operation is synchronous and may take several seconds for large vaults

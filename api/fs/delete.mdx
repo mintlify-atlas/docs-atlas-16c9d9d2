@@ -1,0 +1,180 @@
+---
+title: 'Delete Folder'
+api: 'DELETE /api/fs/folder'
+description: 'Delete a folder and optionally its contents'
+---
+
+## Endpoint
+
+```
+DELETE /api/fs/folder
+```
+
+Deletes a folder from the vault. By default, only deletes empty folders. Use `recursive: true` to delete folders with contents.
+
+Note: To delete individual files, use `DELETE /api/fs/file` instead (see [file.mdx](/api/fs/file)).
+
+## Request Body
+
+<ParamField body="prefix" type="string" required>
+  The folder path to delete, relative to the vault root. Will be automatically normalized to end with `/` if not provided.
+  
+  **Validation:**
+  - Cannot be empty or whitespace-only
+  - Must be relative (no leading `/`)
+  - Must use `/` as separator (not `\`)
+  - Cannot contain `..` segments
+  - Automatically appended with `/` if missing
+</ParamField>
+
+<ParamField body="recursive" type="boolean" default={false}>
+  Whether to delete the folder even if it contains files or subfolders.
+  
+  - `false`: Only delete if folder is empty (contains only the placeholder object)
+  - `true`: Delete folder and all its contents recursively
+</ParamField>
+
+## Response
+
+Returns `204 No Content` on success with an empty body.
+
+## Implementation Details
+
+The deletion process:
+
+1. Lists all objects with the folder prefix
+2. If `recursive` is `false`, checks that only the folder placeholder exists
+3. Deletes objects in batches of up to 1000 (S3 limit)
+4. Invalidates cache for all affected files
+5. Deletes metadata for all deleted markdown files
+6. Updates the manifest incrementally
+
+If the folder doesn't exist (no objects found), the operation succeeds with `204 No Content`.
+
+## Examples
+
+### Delete an empty folder
+
+```bash
+curl -X DELETE "https://your-app.com/api/fs/folder" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix": "archive/old/"}'
+```
+
+```javascript
+const response = await fetch('/api/fs/folder', {
+  method: 'DELETE',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prefix: 'archive/old/'
+  })
+});
+
+if (response.status === 204) {
+  console.log('Folder deleted successfully');
+} else if (response.status === 400) {
+  const { error } = await response.json();
+  console.error('Cannot delete:', error);
+}
+```
+
+### Delete folder with all contents
+
+```bash
+curl -X DELETE "https://your-app.com/api/fs/folder" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "prefix": "temp/",
+    "recursive": true
+  }'
+```
+
+```javascript
+const response = await fetch('/api/fs/folder', {
+  method: 'DELETE',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prefix: 'temp/',
+    recursive: true
+  })
+});
+
+if (response.status === 204) {
+  console.log('Folder and all contents deleted');
+}
+```
+
+### Handle non-recursive deletion of non-empty folder
+
+```javascript
+const response = await fetch('/api/fs/folder', {
+  method: 'DELETE',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prefix: 'projects/active/',
+    recursive: false
+  })
+});
+
+if (response.status === 400) {
+  const { error } = await response.json();
+  console.log(error); // "Folder is not empty. Pass recursive=true to delete"
+  
+  // User can confirm and retry with recursive: true
+  if (confirm('Folder is not empty. Delete all contents?')) {
+    await fetch('/api/fs/folder', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        prefix: 'projects/active/',
+        recursive: true
+      })
+    });
+  }
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### 400 Bad Request
+
+Returned when:
+- The prefix parameter is invalid
+- Attempting to delete a non-empty folder without `recursive: true`
+
+```json
+{
+  "error": "Folder is not empty. Pass recursive=true to delete"
+}
+```
+
+Validation errors:
+- `"Folder prefix is required"`
+- `"Folder prefix cannot be empty"`
+- `"Folder prefix must be relative to the vault root"`
+- `"Folder prefix must use '/' as a separator"`
+- `"Folder prefix cannot contain '..'"` - Path traversal attempts are blocked
+
+### 401 Unauthorized
+
+Returned when authentication fails:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when S3 operations fail:
+
+```json
+{
+  "error": "Failed to delete folder"
+}
+```

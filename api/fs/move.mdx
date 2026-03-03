@@ -1,0 +1,242 @@
+---
+title: 'Move File or Folder'
+api: 'POST /api/fs/move'
+description: 'Move or rename files and folders'
+---
+
+## Endpoint
+
+```
+POST /api/fs/move
+```
+
+Moves or renames a file or folder. Supports both individual file moves and recursive folder moves with all contents.
+
+## Request Body
+
+<ParamField body="fromKey" type="string" required>
+  The source path (file or folder) relative to the vault root.
+  
+  **For files:**
+  - Must end with `.md`
+  - Standard file key validation applies
+  
+  **For folders:**
+  - Must end with `/`
+  - Standard folder prefix validation applies
+</ParamField>
+
+<ParamField body="toKey" type="string" required>
+  The destination path (file or folder) relative to the vault root.
+  
+  **Must match source type:**
+  - If `fromKey` ends with `/`, `toKey` must also end with `/`
+  - If `fromKey` is a file, `toKey` must be a file path (`.md`)
+  
+  Same validation rules as `fromKey` apply.
+</ParamField>
+
+<ParamField body="overwrite" type="boolean" default={false}>
+  Whether to overwrite the destination if it already exists.
+  
+  - `true`: Replace existing file/folder at destination
+  - `false`: Return `409 Conflict` if destination exists
+</ParamField>
+
+<ParamField body="ifMatchEtag" type="string" optional>
+  For file moves only. Expected current ETag of the source file. If provided and doesn't match, returns `409 Conflict`. Use for conflict-free moves.
+</ParamField>
+
+## Response
+
+<ResponseField name="etag" type="string | undefined">
+  The new ETag of the moved file. `undefined` for folder moves.
+</ResponseField>
+
+## Behavior
+
+### File Move
+1. Validates source and destination paths
+2. Checks if destination exists (unless `overwrite: true`)
+3. Optionally verifies source ETag matches `ifMatchEtag`
+4. Copies file to destination
+5. Deletes original file
+6. Updates cache and manifest
+7. Migrates file metadata to new path
+
+### Folder Move
+1. Validates source and destination paths (both must end with `/`)
+2. Lists all objects in source folder recursively
+3. Returns `404` if source folder is empty/doesn't exist
+4. Checks if destination has any objects (unless `overwrite: true`)
+5. Copies all objects to destination, preserving structure
+6. Deletes all original objects in batches of 1000
+7. Updates cache and manifest for all affected files
+8. Migrates metadata for all files
+
+## Examples
+
+### Rename a file
+
+```bash
+curl -X POST "https://your-app.com/api/fs/move" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "fromKey": "notes/old-name.md",
+    "toKey": "notes/new-name.md"
+  }'
+```
+
+```javascript
+const response = await fetch('/api/fs/move', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fromKey: 'notes/old-name.md',
+    toKey: 'notes/new-name.md'
+  })
+});
+
+const { etag } = await response.json();
+console.log('File moved with new ETag:', etag);
+```
+
+### Move file to different folder
+
+```javascript
+const response = await fetch('/api/fs/move', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fromKey: 'drafts/article.md',
+    toKey: 'published/article.md',
+    overwrite: false
+  })
+});
+
+if (response.status === 409) {
+  console.error('Destination already exists');
+}
+```
+
+### Move file with ETag verification
+
+```javascript
+const response = await fetch('/api/fs/move', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fromKey: 'notes/important.md',
+    toKey: 'archive/important.md',
+    ifMatchEtag: 'abc123def456'
+  })
+});
+
+if (response.status === 409) {
+  console.error('Source file was modified or ETag mismatch');
+}
+```
+
+### Rename a folder
+
+```javascript
+const response = await fetch('/api/fs/move', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fromKey: 'projects/old-name/',
+    toKey: 'projects/new-name/'
+  })
+});
+
+if (response.ok) {
+  console.log('Folder and all contents moved successfully');
+}
+```
+
+### Move folder with overwrite
+
+```javascript
+const response = await fetch('/api/fs/move', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    fromKey: 'temp/data/',
+    toKey: 'archive/data/',
+    overwrite: true
+  })
+});
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### 400 Bad Request
+
+Returned when request parameters are invalid:
+
+```json
+{
+  "error": "fromKey and toKey are required"
+}
+```
+
+Other validation errors:
+- `"Folder moves must target a folder prefix"` - Type mismatch (file to folder or vice versa)
+- File/folder validation errors (see file.mdx and mkdir.mdx)
+
+### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 404 Not Found
+
+Returned when the source file/folder doesn't exist:
+
+```json
+{
+  "error": "Source not found"
+}
+```
+
+For folders:
+```json
+{
+  "error": "Source folder not found"
+}
+```
+
+### 409 Conflict
+
+Returned when:
+- Destination already exists and `overwrite` is `false`
+- Source file's ETag doesn't match `ifMatchEtag`
+
+```json
+{
+  "error": "Destination already exists"
+}
+```
+
+```json
+{
+  "error": "ETag mismatch"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when S3 operations fail:
+
+```json
+{
+  "error": "Failed to move object"
+}
+```

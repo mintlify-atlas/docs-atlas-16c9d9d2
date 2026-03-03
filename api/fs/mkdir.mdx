@@ -1,0 +1,136 @@
+---
+title: 'Create Directory'
+api: 'POST /api/fs/mkdir'
+description: 'Create a new folder in the vault'
+---
+
+## Endpoint
+
+```
+POST /api/fs/mkdir
+```
+
+Creates a new folder (directory) in the vault. Returns an error if the folder already exists.
+
+## Request Body
+
+<ParamField body="prefix" type="string" required>
+  The folder path to create, relative to the vault root. Will be automatically normalized to end with `/` if not provided.
+  
+  **Validation:**
+  - Cannot be empty or whitespace-only
+  - Must be relative (no leading `/`)
+  - Must use `/` as separator (not `\`)
+  - Cannot contain `..` segments
+  - Automatically appended with `/` if missing
+</ParamField>
+
+## Response
+
+<ResponseField name="success" type="boolean">
+  Always `true` when the folder is created successfully.
+</ResponseField>
+
+Returns HTTP status `201 Created` on success.
+
+## Implementation Details
+
+Folders are created as S3 placeholder objects with:
+- Empty body
+- Content-Type: `application/x-directory`
+- Key ending with `/`
+
+Before creating, the endpoint checks if a folder already exists at the specified path to prevent duplicates.
+
+## Examples
+
+### Create a folder
+
+```bash
+curl -X POST "https://your-app.com/api/fs/mkdir" \
+  -H "Content-Type: application/json" \
+  -d '{"prefix": "projects/2024"}'
+```
+
+```javascript
+const response = await fetch('/api/fs/mkdir', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prefix: 'projects/2024'
+  })
+});
+
+const data = await response.json();
+if (response.status === 201) {
+  console.log('Folder created successfully');
+}
+```
+
+### Create nested folder
+
+```javascript
+const response = await fetch('/api/fs/mkdir', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    prefix: 'docs/guides/tutorials/'
+  })
+});
+
+if (response.status === 409) {
+  console.log('Folder already exists');
+}
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### 400 Bad Request
+
+Returned when the prefix parameter is invalid:
+
+```json
+{
+  "error": "Folder prefix is required"
+}
+```
+
+Other validation errors:
+- `"Folder prefix cannot be empty"`
+- `"Folder prefix must be relative to the vault root"`
+- `"Folder prefix must use '/' as a separator"`
+- `"Folder prefix cannot contain '..'"` - Path traversal attempts are blocked
+
+### 401 Unauthorized
+
+Returned when authentication fails:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 409 Conflict
+
+Returned when a folder already exists at the specified path:
+
+```json
+{
+  "error": "Folder already exists"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when S3 operations fail:
+
+```json
+{
+  "error": "Failed to create folder"
+}
+```

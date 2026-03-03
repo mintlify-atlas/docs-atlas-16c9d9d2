@@ -1,0 +1,198 @@
+---
+title: 'POST /api/ai/action'
+description: 'Stream AI text transformations (improve, summarize, expand)'
+---
+
+Applies AI transformations to text content with streaming responses. Supports three action types: improve clarity, summarize, and expand.
+
+## Authentication
+
+Requires valid session authentication via cookies or API token.
+
+## Request
+
+```bash
+POST /api/ai/action
+```
+
+### Body Parameters
+
+<ParamField body="action" type="string" required>
+  Type of transformation to apply:
+  - `"improve"` - Enhance clarity and flow without changing meaning
+  - `"summarize"` - Generate a concise 3-5 bullet point summary
+  - `"expand"` - Add richer detail while staying on topic
+</ParamField>
+
+<ParamField body="content" type="string">
+  Full document content to transform. Used if `selection` is not provided.
+</ParamField>
+
+<ParamField body="selection" type="string">
+  Selected text excerpt to transform. Takes priority over `content` if both are provided.
+</ParamField>
+
+<Note>
+  Either `content` or `selection` must be provided with non-empty text.
+</Note>
+
+### Constraints
+
+- **Input size**: Maximum 100,000 characters (automatically truncated)
+- **Rate limit**: 10 requests per 60 seconds per IP address
+- **Temperature**: 0.2 for summarize (deterministic), 0.7 for improve/expand (creative)
+
+## Response
+
+Returns a **text stream** containing the transformed content in Markdown format.
+
+### Response Headers
+
+<ResponseField name="x-ai-input-truncated" type="string">
+  `"1"` if input was truncated to fit the 100,000 character limit, `"0"` otherwise
+</ResponseField>
+
+<ResponseField name="x-ai-action" type="string">
+  Echo of the action type: `"improve"`, `"summarize"`, or `"expand"`
+</ResponseField>
+
+<ResponseField name="Content-Type" type="string">
+  `text/plain; charset=utf-8` for streaming response
+</ResponseField>
+
+### Status Codes
+
+- `200 OK`: Stream initiated successfully
+- `400 Bad Request`: Invalid action type or empty content
+- `401 Unauthorized`: Authentication required
+- `429 Too Many Requests`: Rate limit exceeded (10 req/min)
+- `500 Internal Server Error`: AI generation failed
+
+## Examples
+
+### Improve Text
+
+```bash Request
+curl -X POST https://app.example.com/api/ai/action \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "improve",
+    "selection": "The system is very slow and needs to be faster for users to use it better."
+  }'
+```
+
+```text Response (streaming)
+The system performance is sluggish and requires optimization to improve the user experience.
+```
+
+### Summarize Document
+
+```bash Request
+curl -X POST https://app.example.com/api/ai/action \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "summarize",
+    "content": "# Project Overview\n\nOur application helps users manage their personal knowledge base...\n\n[Long document content]"
+  }'
+```
+
+```text Response (streaming)
+- Personal knowledge base management application
+- Markdown-based with S3 storage backend
+- Features include AI-assisted writing and file tree navigation
+- Optimized for performance with Redis caching
+```
+
+### Expand Ideas
+
+```bash Request
+curl -X POST https://app.example.com/api/ai/action \
+  -H "Cookie: session=..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "action": "expand",
+    "selection": "Add dark mode support."
+  }'
+```
+
+```text Response (streaming)
+Implement comprehensive dark mode support throughout the application. This should include:
+
+- A theme toggle in the user settings panel
+- Dark color palettes for all UI components (editor, sidebar, modals)
+- Proper contrast ratios for accessibility (WCAG AA compliance)
+- Persistent theme preference stored in user settings
+- Smooth transitions between light and dark modes
+- Special consideration for syntax highlighting in the markdown editor
+
+The dark mode should reduce eye strain during extended writing sessions and provide a professional appearance for nighttime use.
+```
+
+## JavaScript Example
+
+```javascript
+async function improveText(selection) {
+  const response = await fetch('/api/ai/action', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      action: 'improve',
+      selection,
+    }),
+  });
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let result = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    result += decoder.decode(value, { stream: true });
+  }
+
+  return result;
+}
+```
+
+## Rate Limiting
+
+The endpoint implements per-IP rate limiting to prevent abuse:
+
+- **Window**: 60 seconds
+- **Max requests**: 10 per window
+- **Response**: `429 Too Many Requests` when limit exceeded
+- **Reset**: Counter resets after the time window expires
+
+<Warning>
+  Rate limits are tracked in-memory per server instance. In multi-instance deployments, each instance maintains its own counter.
+</Warning>
+
+## Action Details
+
+### Improve
+- **Goal**: Enhance clarity, grammar, and flow
+- **Temperature**: 0.7 (balanced creativity)
+- **Preserves**: Original meaning and intent
+- **Output**: Polished version of the input text
+
+### Summarize
+- **Goal**: Extract key points concisely
+- **Temperature**: 0.2 (deterministic)
+- **Format**: 3-5 bullet points
+- **Output**: High-level summary without new information
+
+### Expand
+- **Goal**: Add detail and context
+- **Temperature**: 0.7 (creative)
+- **Stays**: On topic with original text
+- **Output**: Enriched version with additional relevant information
+
+## Use Cases
+
+- Editor toolbar actions (improve/summarize/expand buttons)
+- Batch document processing
+- Writing assistance workflows
+- Content refinement tools

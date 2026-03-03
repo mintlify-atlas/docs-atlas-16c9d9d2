@@ -1,0 +1,186 @@
+---
+title: S3 Configuration with Tigris
+description: Set up S3-backed storage using Tigris for your Personal Notes vault
+---
+
+Personal Notes uses Tigris as an S3-compatible storage provider to store your markdown files and the file tree manifest. All file operations are handled through the AWS S3 SDK.
+
+## Environment Variables
+
+Configure these environment variables in your `.env` file:
+
+```bash
+TIGRIS_S3_ENDPOINT=https://fly.storage.tigris.dev
+TIGRIS_S3_REGION=auto
+TIGRIS_S3_ACCESS_KEY_ID=your_access_key
+TIGRIS_S3_SECRET_ACCESS_KEY=your_secret_key
+TIGRIS_S3_BUCKET=your_bucket_name
+
+# Optional: prefix for all vault files (e.g., "vault/")
+TIGRIS_S3_PREFIX=
+```
+
+<Warning>
+  All environment variables except `TIGRIS_S3_PREFIX` are required. The application will throw an error on startup if any required variable is missing.
+</Warning>
+
+## S3 Client Configuration
+
+The S3 client is configured in `lib/s3.ts` with path-style access and lazy initialization:
+
+```typescript lib/s3.ts
+import { S3Client } from "@aws-sdk/client-s3";
+
+const client = new S3Client({
+  region: "auto",
+  endpoint: "https://fly.storage.tigris.dev",
+  forcePathStyle: true,
+  credentials: {
+    accessKeyId: process.env.TIGRIS_S3_ACCESS_KEY_ID,
+    secretAccessKey: process.env.TIGRIS_S3_SECRET_ACCESS_KEY,
+  },
+});
+```
+
+### Key Features
+
+- **Lazy initialization**: The S3 client is created once and cached for subsequent requests
+- **Path-style access**: Uses `forcePathStyle: true` for compatibility with Tigris
+- **Vault prefix support**: Optional prefix to organize files within your bucket
+
+## Vault Prefix
+
+The `TIGRIS_S3_PREFIX` environment variable allows you to store vault files under a specific prefix in your bucket. This is useful when sharing a bucket with other applications.
+
+<Steps>
+  <Step title="Set the prefix">
+    Add the prefix to your `.env` file:
+    ```bash
+    TIGRIS_S3_PREFIX=vault/
+    ```
+  </Step>
+  
+  <Step title="Prefix normalization">
+    The prefix is automatically normalized:
+    - Leading slashes are removed
+    - Trailing slash is added if missing
+    - Empty strings are handled gracefully
+  </Step>
+  
+  <Step title="Access files">
+    All file operations automatically apply the prefix:
+    ```typescript
+    import { applyVaultPrefix } from "@/lib/s3";
+    
+    // If prefix is "vault/"
+    const key = applyVaultPrefix("notes/readme.md");
+    // Returns: "vault/notes/readme.md"
+    ```
+  </Step>
+</Steps>
+
+## Helper Functions
+
+The S3 module provides several utility functions:
+
+### `getS3Client()`
+
+Returns the configured S3 client instance.
+
+```typescript
+import { getS3Client } from "@/lib/s3";
+
+const client = getS3Client();
+```
+
+### `getBucket()`
+
+Returns the configured bucket name.
+
+```typescript
+import { getBucket } from "@/lib/s3";
+
+const bucket = getBucket();
+```
+
+### `applyVaultPrefix(key: string)`
+
+Applies the vault prefix to a relative key.
+
+```typescript
+import { applyVaultPrefix } from "@/lib/s3";
+
+const fullKey = applyVaultPrefix("my-note.md");
+// With prefix "vault/": "vault/my-note.md"
+// Without prefix: "my-note.md"
+```
+
+### `stripVaultPrefix(key: string)`
+
+Removes the vault prefix from an S3 key to get the relative path.
+
+```typescript
+import { stripVaultPrefix } from "@/lib/s3";
+
+const relative = stripVaultPrefix("vault/my-note.md");
+// Returns: "my-note.md"
+```
+
+### `ensureFolderPath(value: string)`
+
+Ensures a path ends with a trailing slash for folder operations.
+
+```typescript
+import { ensureFolderPath } from "@/lib/s3";
+
+const folderPath = ensureFolderPath("notes");
+// Returns: "notes/"
+```
+
+## Error Handling
+
+<Note>
+  The S3 configuration validates all required environment variables at startup. Missing variables will cause the application to fail immediately with a descriptive error message.
+</Note>
+
+From `lib/s3.ts:11`:
+
+```typescript
+function required(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`Missing environment variable: ${name}`);
+  }
+  return value;
+}
+```
+
+## Usage Example
+
+Here's how the S3 client is used to fetch a file:
+
+```typescript
+import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { getS3Client, getBucket, applyVaultPrefix } from "@/lib/s3";
+
+const client = getS3Client();
+const bucket = getBucket();
+
+const response = await client.send(
+  new GetObjectCommand({
+    Bucket: bucket,
+    Key: applyVaultPrefix("notes/readme.md"),
+  })
+);
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="File Tree Manifest" icon="sitemap" href="/storage/file-tree-manifest">
+    Learn how the cached file tree system works
+  </Card>
+  <Card title="Caching Strategy" icon="database" href="/storage/caching-strategy">
+    Understand the Redis and Next.js caching layers
+  </Card>
+</CardGroup>

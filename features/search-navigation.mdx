@@ -1,0 +1,546 @@
+---
+title: Search & Navigation
+description: Find files quickly with search, navigate with keyboard shortcuts, and track your location with breadcrumbs
+---
+
+Efficiently navigate your notes with powerful search, keyboard shortcuts, and visual breadcrumbs.
+
+## File Search
+
+The search box at the top of the file tree helps you find files instantly:
+
+### How Search Works
+
+```typescript
+// Search implementation with debouncing
+// From: components/file-tree/index.tsx:47-50
+const [query, setQuery] = useState("");
+const debouncedQuery = useDebouncedValueHook(query, 200);
+const normalizedQuery = debouncedQuery.trim().toLowerCase();
+const filterActive = normalizedQuery.length > 0;
+```
+
+<Steps>
+  <Step title="Type in the search box">
+    Enter any part of a file or folder name. Search is case-insensitive.
+  </Step>
+  <Step title="Results update automatically">
+    The tree filters as you type, with a 200ms debounce for smooth performance.
+  </Step>
+  <Step title="Navigate matches">
+    Use arrow keys or click to select from filtered results.
+  </Step>
+</Steps>
+
+### Search Behavior
+
+The search filter uses smart matching:
+
+```typescript
+// Match logic includes parent folders
+// From: components/file-tree/index.tsx:176-197
+const matchMap = useMemo(() => {
+  if (!filterActive) return null;
+  
+  const map = new Map<NodeId, MatchMeta>();
+  const visit = (id: NodeId): boolean => {
+    const node = nodes[id];
+    if (!node) return false;
+    
+    const matchesSelf = node.name.toLowerCase().includes(normalizedQuery);
+    let hasMatchingChild = false;
+    
+    if (node.type === "folder") {
+      hasMatchingChild = node.children.some((childId) => visit(childId));
+    }
+    
+    const include = matchesSelf || hasMatchingChild;
+    map.set(id, { include, matchesSelf, hasMatchingChild });
+    return include;
+  };
+  
+  rootIds.forEach((id) => visit(id));
+  return map;
+}, [filterActive, nodes, normalizedQuery, rootIds]);
+```
+
+<Accordion title="Search Features">
+  **Matches**
+  - File names (e.g., "meeting" finds "Meeting Notes.md")
+  - Folder names (e.g., "projects" finds "Projects/")
+  - Partial matches (e.g., "proj" finds "Projects")
+  
+  **Parent Folders**
+  - Folders containing matching files are shown
+  - Automatically expanded to reveal matches
+  - Full path context preserved
+  
+  **Performance**
+  - 200ms debounce prevents excessive filtering
+  - Results cached until query changes
+  - Efficient tree traversal algorithm
+</Accordion>
+
+### Empty Search Results
+
+When no files match:
+
+```tsx
+// Empty state when filtering
+// From: components/file-tree/index.tsx:259-264
+if (filterActive) {
+  return (
+    <div className="rounded-md border border-dashed border-border/60 
+                    bg-muted/30 px-2 py-3 text-xs text-muted-foreground">
+      No matches found.
+    </div>
+  );
+}
+```
+
+<Tip>
+  Clear the search box to see all files again. The search icon on the right provides visual feedback.
+</Tip>
+
+## Keyboard Shortcuts
+
+Keyboard shortcuts provide fast navigation throughout the app:
+
+### Global Shortcuts
+
+These work anywhere in the app:
+
+| Shortcut | Action | Context |
+|----------|--------|----------|
+| `⌘B` | Toggle left sidebar | Global |
+| `⌘J` | Toggle chat sidebar | Global |
+| `⌘S` | Save current file | Global |
+| `Escape` | Close modals/sheets | Global |
+
+```typescript
+// Global keyboard handlers
+// From: components/app-shell.tsx:106-148
+useEffect(() => {
+  const onKey = (e: KeyboardEvent) => {
+    if (e.key === "Escape") {
+      setRightMobileOpen(false);
+      return;
+    }
+    
+    // Cmd/Ctrl+J: Toggle chat
+    if (e.key === "j" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      toggleRightSidebar("chat");
+      return;
+    }
+    
+    // Cmd/Ctrl+S: Save file
+    if (e.key === "s" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      const editorState = useEditorStore.getState();
+      if (editorState.fileKey && editorState.dirty) {
+        void editorState.save("manual");
+      }
+      return;
+    }
+  };
+  
+  window.addEventListener("keydown", onKey);
+  return () => window.removeEventListener("keydown", onKey);
+}, []);
+```
+
+### File Tree Shortcuts
+
+When the file tree has focus:
+
+<Tabs>
+  <Tab title="Navigation">
+    | Shortcut | Action |
+    |----------|--------|
+    | `↑` | Move up one item |
+    | `↓` | Move down one item |
+    | `←` | Collapse folder or jump to parent |
+    | `→` | Expand folder or enter first child |
+    | `Enter` | Open file or toggle folder |
+  </Tab>
+  
+  <Tab title="File Operations">
+    | Shortcut | Action |
+    |----------|--------|
+    | `F2` | Rename selected item |
+    | `⌘N` | New file in current/selected folder |
+    | `⇧⌘N` | New folder in current/selected folder |
+    | `⇧⌘M` | Move selected item |
+    | `⌘⌫` | Delete selected item |
+  </Tab>
+</Tabs>
+
+### Header Actions
+
+From the workspace header:
+
+| Shortcut | Action | Availability |
+|----------|--------|-------------|
+| `⌘⇧E` | Export markdown | File open |
+| `⌘⇧C` | Copy public link | Public link enabled |
+
+### Viewing All Shortcuts
+
+Press the help icon (?) in the header to see all available shortcuts:
+
+```typescript
+// Shortcuts defined in dialog
+// From: components/shortcuts-help-dialog.tsx:22-35
+const SHORTCUTS: ShortcutItem[] = [
+  { category: "Global", label: "Toggle Left Sidebar", keys: ["⌘", "B"] },
+  { category: "Global", label: "Toggle Chat Sidebar", keys: ["⌘", "J"] },
+  { category: "Global", label: "Save File", keys: ["⌘", "S"] },
+  { category: "File Tree", label: "Navigation", keys: ["↑", "↓", "←", "→"] },
+  { category: "File Tree", label: "Open / Toggle", keys: ["Enter"] },
+  { category: "File Tree", label: "Rename", keys: ["F2"] },
+  { category: "File Tree", label: "Delete", keys: ["⌘", "⌫"] },
+  { category: "File Tree", label: "New File", keys: ["⌘", "N"] },
+  { category: "File Tree", label: "New Folder", keys: ["⇧", "⌘", "N"] },
+  { category: "File Tree", label: "Move", keys: ["⇧", "⌘", "M"] },
+  { category: "Actions", label: "Export Markdown", keys: ["⌘", "⇧", "E"] },
+  { category: "Actions", label: "Copy Public Link", keys: ["⌘", "⇧", "C"] },
+];
+```
+
+<Note>
+  The shortcuts dialog includes a search feature to filter shortcuts by name or category.
+</Note>
+
+## Breadcrumb Navigation
+
+Breadcrumbs show your current location in the file tree:
+
+### Breadcrumb Display
+
+```tsx
+// Breadcrumb structure
+// From: components/vault-workspace/header.tsx:143-179
+{segments.length > 0 ? (
+  <div className="flex items-center gap-2 min-w-0">
+    {/* Mobile: filename only */}
+    <span className="block md:hidden truncate font-medium text-foreground">
+      {fileName}
+    </span>
+
+    {/* Desktop: full path or compact mode */}
+    {useCompactMode ? (
+      <span className="hidden md:block truncate font-medium text-foreground">
+        {fileName}
+      </span>
+    ) : (
+      <div className="hidden md:flex items-center gap-0.5 whitespace-nowrap">
+        {segments.map((segment, index) => {
+          const isLast = index === segments.length - 1;
+          return (
+            <div key={`${segment.label}-${index}`}>
+              {index > 0 && <ChevronRight className="h-3.5 w-3.5" />}
+              {segment.path ? (
+                <Link href={`/files/${encodePath(segment.path)}`}>
+                  {segment.label}
+                </Link>
+              ) : (
+                <span className={isLast ? "font-medium text-foreground" : ""}>
+                  {segment.label}
+                </span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    )}
+  </div>
+) : (
+  <span className="text-sm text-muted-foreground">Select a file</span>
+)}
+```
+
+### Breadcrumb Features
+
+<AccordionGroup>
+  <Accordion title="Responsive Display" icon="mobile">
+    **Mobile (< 768px)**
+    - Shows only the file name
+    - Truncates if too long
+    - Saves screen space
+    
+    **Desktop (≥ 768px)**
+    - Shows full path with separators
+    - Clickable folder links
+    - Compact mode if space is limited
+  </Accordion>
+  
+  <Accordion title="Clickable Navigation" icon="hand-pointer">
+    Click any folder in the breadcrumb to navigate:
+    
+    - Folders are underlined links
+    - Hover shows link icon
+    - Opens folder view in main area
+    - Current file name is not clickable
+  </Accordion>
+  
+  <Accordion title="Adaptive Layout" icon="arrows-left-right">
+    The header detects available space:
+    
+    ```typescript
+    // Responsive breadcrumb rendering
+    // From: components/vault-workspace/header.tsx:121-137
+    useEffect(() => {
+      const headerEl = headerRef.current;
+      if (!headerEl) return;
+      
+      const checkWidth = () => {
+        // If width < 600px, show compact mode (filename only)
+        setUseCompactMode(headerEl.offsetWidth < 600);
+      };
+      
+      checkWidth();
+      const resizeObserver = new ResizeObserver(checkWidth);
+      resizeObserver.observe(headerEl);
+      
+      return () => resizeObserver.disconnect();
+    }, []);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+### Breadcrumb Building
+
+Breadcrumbs are constructed from the file path:
+
+```typescript
+// Convert path to breadcrumb segments
+// From: components/vault-workspace/index.tsx:545-557
+function buildSegments(path: string): BreadcrumbSegment[] {
+  const cleaned = path.endsWith("/") ? path.slice(0, -1) : path;
+  if (!cleaned) return [];
+  
+  const parts = cleaned.split("/");
+  return parts.map((label, index) => {
+    const isLast = index === parts.length - 1;
+    // Build cumulative path for parent folders
+    const cumulativePath = isLast 
+      ? null 
+      : parts.slice(0, index + 1).join("/") + "/";
+    return { label, path: cumulativePath };
+  });
+}
+```
+
+Example:
+```
+Projects/2024/Q1 Goals.md
+↓
+[
+  { label: "Projects", path: "Projects/" },
+  { label: "2024", path: "Projects/2024/" },
+  { label: "Q1 Goals", path: null }
+]
+```
+
+## Sibling Navigation
+
+Navigate between files in the same folder:
+
+### Previous/Next Buttons
+
+Arrow buttons in the header (desktop only) move between siblings:
+
+```typescript
+// Sibling navigation logic
+// From: components/vault-workspace/index.tsx:154-188
+const siblingNavigation = useMemo(() => {
+  if (!selectedId) return { prevId: null, nextId: null };
+  
+  const selectedNode = nodes[selectedId];
+  if (!selectedNode || selectedNode.type !== "file") {
+    return { prevId: null, nextId: null };
+  }
+  
+  const parentId = selectedNode.parentId;
+  if (!parentId) return { prevId: null, nextId: null };
+  
+  const parentNode = nodes[parentId];
+  if (!parentNode || parentNode.type !== "folder") {
+    return { prevId: null, nextId: null };
+  }
+  
+  // Get only file siblings (exclude folders)
+  const fileSiblingIds = parentNode.children
+    .filter((childId) => nodes[childId]?.type === "file");
+  
+  if (fileSiblingIds.length <= 1) {
+    return { prevId: null, nextId: null };
+  }
+  
+  const currentIndex = fileSiblingIds.indexOf(selectedNode.id);
+  return {
+    prevId: currentIndex > 0 ? fileSiblingIds[currentIndex - 1] : null,
+    nextId: currentIndex < fileSiblingIds.length - 1 
+      ? fileSiblingIds[currentIndex + 1] 
+      : null,
+  };
+}, [nodes, selectedId]);
+```
+
+<Tip>
+  Sibling navigation only considers files in the same parent folder, making it easy to review related notes sequentially.
+</Tip>
+
+## Tree Controls
+
+Global tree controls in the toolbar:
+
+### Refresh Tree
+
+Manually refresh the file tree from the server:
+
+```tsx
+// Refresh button with loading state
+// From: components/file-tree/index.tsx:286-298
+<Tooltip>
+  <TooltipTrigger asChild>
+    <Button
+      onClick={() => void refreshTree()}
+      disabled={refreshState !== "idle"}
+    >
+      <RefreshCw className={refreshState !== "idle" ? "animate-spin" : ""} />
+    </Button>
+  </TooltipTrigger>
+  <TooltipContent>Refresh file tree</TooltipContent>
+</Tooltip>
+```
+
+The refresh button:
+- Shows spinning animation while loading
+- Disabled during refresh
+- Fetches latest tree manifest from server
+- Preserves current selection if possible
+
+### Expand/Collapse All
+
+Toggle all folders at once:
+
+```typescript
+// Expand/collapse all folders
+// From: components/file-tree/index.tsx:300-326
+const [allExpanded, setAllExpanded] = useState(false);
+
+<Button
+  onClick={() => {
+    if (allExpanded) {
+      collapseAll();
+    } else {
+      expandAll();
+    }
+    setAllExpanded(!allExpanded);
+  }}
+>
+  {allExpanded ? (
+    <ChevronsDownUp className="h-3.5 w-3.5" />
+  ) : (
+    <ChevronsUpDown className="h-3.5 w-3.5" />
+  )}
+</Button>
+```
+
+Features:
+- Icon changes based on state
+- Remembers expansion state
+- Useful for getting overview or focusing on current work
+
+## Visual Navigation Aids
+
+### Active Item Highlighting
+
+The file tree shows multiple selection states:
+
+```typescript
+// Visual states for navigation feedback
+// From: components/file-tree/tree-nodes.tsx:158-184
+const isActive = node.id === activeId;
+const isAncestor = selectedNode && selectedNode.path.startsWith(prefix);
+const selectionState = selectedId === node.id ? "selected" : null;
+
+<div className={cn(
+  "group/folder relative flex items-center rounded-md",
+  (selectionState === "selected" || isActive)
+    ? "bg-sidebar-accent text-foreground"
+    : "hover:bg-muted/20"
+)}>
+```
+
+| State | Visual Indicator | Meaning |
+|-------|------------------|----------|
+| Selected | Accent background | Current open file |
+| Active | Focus ring | Keyboard navigation focus |
+| Ancestor | Bold text | Folder containing selected file |
+| Hover | Subtle background | Mouse over |
+
+### Scroll into View
+
+Keyboard navigation automatically scrolls items into view:
+
+```typescript
+// Auto-scroll on keyboard navigation
+// From: components/file-tree/hooks/use-tree-keyboard-navigation.ts:65-79
+const focusNodeByIndex = (index: number) => {
+  const items = containerRef.current
+    ?.querySelectorAll<HTMLButtonElement>("[data-node-id]");
+  
+  const element = items[clampedIndex];
+  if (!element) return;
+  
+  const nextId = element.dataset.nodeId ?? null;
+  setActiveId(nextId);
+  element.focus({ preventScroll: true });
+  element.scrollIntoView({ block: "nearest" });
+};
+```
+
+<Note>
+  The `block: "nearest"` option scrolls only when necessary, providing smooth navigation without jarring jumps.
+</Note>
+
+## Performance Optimizations
+
+### Debounced Search
+
+Search input is debounced to prevent excessive re-renders:
+
+```typescript
+// 200ms debounce for search
+const debouncedQuery = useDebouncedValueHook(query, 200);
+```
+
+### Memoized Filtering
+
+Search results are memoized to avoid recalculation:
+
+```typescript
+// Memoized match map only recalculates when dependencies change
+const matchMap = useMemo(() => {
+  // ... filtering logic
+}, [filterActive, nodes, normalizedQuery, rootIds]);
+```
+
+### Efficient Tree Traversal
+
+The search algorithm visits each node only once:
+
+```typescript
+// Single-pass tree traversal
+const visit = (id: NodeId): boolean => {
+  const node = nodes[id];
+  const matchesSelf = node.name.toLowerCase().includes(normalizedQuery);
+  const hasMatchingChild = node.type === "folder" 
+    ? node.children.some((childId) => visit(childId))
+    : false;
+  return matchesSelf || hasMatchingChild;
+};
+```

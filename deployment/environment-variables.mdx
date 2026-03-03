@@ -1,0 +1,269 @@
+---
+title: Environment Variables
+description: Complete reference for all environment variables required by the Personal Notes application
+---
+
+The Personal Notes application requires several environment variables to connect to external services. This page documents all available configuration options.
+
+## Required Variables
+
+### Tigris S3 Storage
+
+These variables configure the S3-compatible object storage for markdown files and the file tree manifest.
+
+<ParamField path="TIGRIS_S3_ENDPOINT" type="string" required>
+  The S3-compatible endpoint URL for Tigris storage.
+  
+  Example: `https://fly.storage.tigris.dev`
+</ParamField>
+
+<ParamField path="TIGRIS_S3_REGION" type="string" required>
+  The region for your Tigris bucket.
+  
+  Example: `auto`
+</ParamField>
+
+<ParamField path="TIGRIS_S3_ACCESS_KEY_ID" type="string" required>
+  Access key ID for authenticating with Tigris S3.
+  
+  Obtain from your Tigris dashboard under Access Keys.
+</ParamField>
+
+<ParamField path="TIGRIS_S3_SECRET_ACCESS_KEY" type="string" required>
+  Secret access key for authenticating with Tigris S3.
+  
+  Obtain from your Tigris dashboard under Access Keys.
+</ParamField>
+
+<ParamField path="TIGRIS_S3_BUCKET" type="string" required>
+  The name of your Tigris bucket where markdown files are stored.
+  
+  Example: `my-notes-vault`
+</ParamField>
+
+<ParamField path="TIGRIS_S3_PREFIX" type="string">
+  Optional bucket prefix for organizing files within your bucket.
+  
+  Example: `vault/` or `notes/`
+  
+  If omitted, files are stored at the bucket root. The prefix is automatically normalized to end with a trailing slash.
+</ParamField>
+
+### Turso Database
+
+Turso (LibSQL) is used for persisting authentication data including users, sessions, accounts, and verification tokens.
+
+<ParamField path="TURSO_DATABASE_URL" type="string" required>
+  The connection URL for your Turso database.
+  
+  Example: `libsql://your-database.turso.io`
+  
+  Legacy alias: `TURSO_DB_URL` (still supported)
+</ParamField>
+
+<ParamField path="TURSO_AUTH_TOKEN" type="string">
+  Authentication token for accessing your Turso database.
+  
+  Required for remote databases. Obtain from the Turso dashboard or CLI.
+  
+  Legacy alias: `TURSO_DB_TOKEN` (still supported)
+</ParamField>
+
+<Warning>
+  If `pnpm db:migrate` fails with a 401 error, verify your `TURSO_AUTH_TOKEN` or regenerate it from the Turso dashboard.
+</Warning>
+
+### GitHub OAuth (BetterAuth)
+
+Authentication is handled via GitHub OAuth using BetterAuth.
+
+<ParamField path="BETTER_AUTH_SECRET" type="string" required>
+  Secret key for signing and encrypting authentication tokens.
+  
+  Generate a secure random string (minimum 32 characters). Can also use `AUTH_SECRET` as an alias.
+  
+  Example generation: `openssl rand -base64 32`
+</ParamField>
+
+<ParamField path="GH_CLIENT_ID" type="string" required>
+  GitHub OAuth application client ID.
+  
+  Create a GitHub OAuth app at: Settings → Developer settings → OAuth Apps
+</ParamField>
+
+<ParamField path="GH_CLIENT_SECRET" type="string" required>
+  GitHub OAuth application client secret.
+  
+  Obtained when creating your GitHub OAuth app.
+</ParamField>
+
+<ParamField path="GH_ALLOWED_LOGIN" type="string" required>
+  GitHub username or email allowed to access the application.
+  
+  Only this user will be able to authenticate. Value is case-insensitive and trimmed.
+  
+  Example: `your-github-username`
+</ParamField>
+
+<ParamField path="AUTH_INSECURE_ALLOW_ALL" type="boolean" default="false">
+  **INSECURE**: Bypass user restrictions and allow any authenticated GitHub user.
+  
+  Set to `"true"` to disable allowlist checking. Only use for development/testing.
+</ParamField>
+
+### AI Gateway
+
+The AI Gateway powers the `/api/ai/chat` and `/api/ai/action` endpoints.
+
+<ParamField path="AI_GATEWAY_API_KEY" type="string" required>
+  API key for authenticating with the AI Gateway service.
+  
+  Obtain from your AI Gateway provider (e.g., Vercel AI Gateway).
+</ParamField>
+
+<ParamField path="AI_MODEL" type="string" default="google/gemini-3-flash">
+  Default AI model for action endpoints.
+  
+  Format: `provider/model-name`
+  
+  Example: `google/gemini-3-flash`, `openai/gpt-4`
+</ParamField>
+
+<ParamField path="AI_CHAT_MODEL" type="string">
+  Override the default model specifically for chat endpoints.
+  
+  If not set, falls back to `AI_MODEL`, then the system default (`google/gemini-3-flash`).
+</ParamField>
+
+## Optional Variables
+
+### Upstash Redis
+
+Redis provides a shared cache for the file tree manifest across edge regions.
+
+<ParamField path="UPSTASH_REDIS_REST_URL" type="string">
+  REST API endpoint for your Upstash Redis instance.
+  
+  Example: `https://your-instance.upstash.io`
+  
+  Required when using `pnpm tree:refresh -- --push-redis`
+</ParamField>
+
+<ParamField path="UPSTASH_REDIS_REST_TOKEN" type="string">
+  Authentication token for Upstash Redis REST API.
+  
+  Obtain from your Upstash dashboard.
+</ParamField>
+
+<Info>
+  Redis is optional but **highly recommended** for production deployments. It ensures all edge regions share the latest file tree manifest immediately after updates.
+</Info>
+
+### Public Variables
+
+These variables are exposed to the client and must be prefixed with `NEXT_PUBLIC_`.
+
+<ParamField path="NEXT_PUBLIC_APP_URL" type="string" default="http://localhost:3000">
+  The public URL where your application is hosted.
+  
+  Example: `https://notes.example.com`
+  
+  Used for generating OAuth redirect URLs and metadata.
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_MARKDOWN_IMAGE_HOSTS" type="string">
+  Comma-separated list of allowed CDN hostnames for markdown images.
+  
+  Example: `cdn.example.com,images.example.org`
+  
+  Default allowlist (if omitted):
+  - `avatars.githubusercontent.com`
+  - `nordicapis.com` (including `www.nordicapis.com`)
+  
+  Images from non-allowlisted HTTPS hosts and relative URLs (same-origin) are always allowed.
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_ENABLE_PWA_IN_DEV" type="boolean" default="false">
+  Enable Progressive Web App service worker registration in development mode.
+  
+  Set to `"true"` to test PWA installability locally. In production builds, PWA registration is enabled automatically.
+</ParamField>
+
+### Internal/Advanced Variables
+
+<ParamField path="TREE_REFRESH_SECRET" type="string">
+  Optional secret for authenticating `/api/tree/refresh` requests.
+  
+  If set, requests must include this value in the authorization header.
+</ParamField>
+
+<ParamField path="NEXT_CACHE_COMPONENTS" type="boolean" default="true">
+  Enable Next.js component caching.
+  
+  Set to `"false"` to disable. Internal Next.js configuration.
+</ParamField>
+
+## Environment File Setup
+
+Create a `.env.local` file in your project root (or `.env` for production):
+
+```bash
+# Tigris S3
+TIGRIS_S3_ENDPOINT=https://fly.storage.tigris.dev
+TIGRIS_S3_REGION=auto
+TIGRIS_S3_ACCESS_KEY_ID=your_access_key
+TIGRIS_S3_SECRET_ACCESS_KEY=your_secret_key
+TIGRIS_S3_BUCKET=my-notes-vault
+TIGRIS_S3_PREFIX=vault/
+
+# Turso Database
+TURSO_DATABASE_URL=libsql://your-database.turso.io
+TURSO_AUTH_TOKEN=your_turso_token
+
+# GitHub OAuth
+GH_CLIENT_ID=your_github_client_id
+GH_CLIENT_SECRET=your_github_client_secret
+GH_ALLOWED_LOGIN=your-github-username
+BETTER_AUTH_SECRET=your_32_char_secret
+
+# Upstash Redis (recommended)
+UPSTASH_REDIS_REST_URL=https://your-instance.upstash.io
+UPSTASH_REDIS_REST_TOKEN=your_redis_token
+
+# AI Gateway
+AI_GATEWAY_API_KEY=your_ai_gateway_key
+AI_MODEL=google/gemini-3-flash
+
+# Public Variables
+NEXT_PUBLIC_APP_URL=https://notes.example.com
+NEXT_PUBLIC_MARKDOWN_IMAGE_HOSTS=cdn.example.com,images.example.org
+```
+
+## CI/CD Secrets
+
+For GitHub Actions workflows, add these secrets to your repository:
+
+1. Open your repository on GitHub
+2. Navigate to **Settings → Secrets and variables → Actions**
+3. Under **Repository secrets**, add each required variable:
+
+**Required for CI:**
+- `TURSO_DATABASE_URL`
+- `TURSO_AUTH_TOKEN`
+- `TIGRIS_S3_ENDPOINT`
+- `TIGRIS_S3_REGION`
+- `TIGRIS_S3_ACCESS_KEY_ID`
+- `TIGRIS_S3_SECRET_ACCESS_KEY`
+- `TIGRIS_S3_BUCKET`
+- `TIGRIS_S3_PREFIX` (set to empty string if unused)
+- `GH_CLIENT_ID`
+- `GH_CLIENT_SECRET`
+- `GH_ALLOWED_LOGIN`
+- `BETTER_AUTH_SECRET`
+- `AI_GATEWAY_API_KEY`
+
+After adding secrets, re-run any failed workflow jobs.
+
+<Info>
+  The `workflow-gates` CI job runs `pnpm build`, which requires all environment variables that are validated at build time.
+</Info>

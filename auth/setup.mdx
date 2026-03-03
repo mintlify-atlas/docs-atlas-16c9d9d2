@@ -1,0 +1,383 @@
+---
+title: Authentication Setup
+description: Configure BetterAuth with Turso database for user authentication
+---
+
+Personal Notes uses [BetterAuth](https://betterauth.com) for authentication with GitHub OAuth. User sessions and account data are stored in a Turso (LibSQL) database via Drizzle ORM.
+
+## Environment Variables
+
+Configure these environment variables in your `.env` file:
+
+```bash
+# BetterAuth secret (required)
+BETTER_AUTH_SECRET=your_random_secret_key
+# or
+AUTH_SECRET=your_random_secret_key
+
+# GitHub OAuth (required)
+GH_CLIENT_ID=your_github_client_id
+GH_CLIENT_SECRET=your_github_client_secret
+GH_ALLOWED_LOGIN=your_github_username
+
+# Turso database (required)
+TURSO_DATABASE_URL=libsql://your-db.turso.io
+TURSO_AUTH_TOKEN=your_turso_token
+# Legacy aliases also supported:
+# TURSO_DB_URL, TURSO_DB_TOKEN
+
+# Optional: allow all users (insecure, dev only)
+AUTH_INSECURE_ALLOW_ALL=false
+```
+
+<Warning>
+  `BETTER_AUTH_SECRET` or `AUTH_SECRET` is required. Generate a secure random string with:
+  ```bash
+  openssl rand -base64 32
+  ```
+</Warning>
+
+## Database Schema
+
+BetterAuth requires four tables for managing users, sessions, accounts, and verification tokens.
+
+### User Table
+
+Stores user profile information.
+
+From `drizzle/schema.ts:4`:
+
+```typescript
+export const user = sqliteTable("user", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  emailVerified: integer("email_verified", { mode: "boolean" })
+    .default(false)
+    .notNull(),
+  image: text("image"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+```
+
+### Session Table
+
+Tracks active user sessions.
+
+From `drizzle/schema.ts:21`:
+
+```typescript
+export const session = sqliteTable("session", {
+  id: text("id").primaryKey(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  token: text("token").notNull().unique(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .$onUpdate(() => new Date())
+    .notNull(),
+  ipAddress: text("ip_address"),
+  userAgent: text("user_agent"),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+});
+```
+
+### Account Table
+
+Links users to OAuth providers (GitHub).
+
+From `drizzle/schema.ts:38`:
+
+```typescript
+export const account = sqliteTable("account", {
+  id: text("id").primaryKey(),
+  accountId: text("account_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => user.id, { onDelete: "cascade" }),
+  accessToken: text("access_token"),
+  refreshToken: text("refresh_token"),
+  idToken: text("id_token"),
+  accessTokenExpiresAt: integer("access_token_expires_at", {
+    mode: "timestamp_ms",
+  }),
+  refreshTokenExpiresAt: integer("refresh_token_expires_at", {
+    mode: "timestamp_ms",
+  }),
+  scope: text("scope"),
+  password: text("password"),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+```
+
+### Verification Table
+
+Stores email verification tokens.
+
+From `drizzle/schema.ts:64`:
+
+```typescript
+export const verification = sqliteTable("verification", {
+  id: text("id").primaryKey(),
+  identifier: text("identifier").notNull(),
+  value: text("value").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp_ms" })
+    .default(sql`(cast(unixepoch('subsecond') * 1000 as integer))`)
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+```
+
+## Database Setup
+
+<Steps>
+  <Step title="Generate schema">
+    Regenerate the BetterAuth Drizzle schema:
+    ```bash
+    pnpm auth:schema
+    ```
+    This writes to `drizzle/schema.ts`.
+  </Step>
+  
+  <Step title="Generate migrations">
+    Create SQL migration files:
+    ```bash
+    pnpm db:generate
+    ```
+    Migrations are written to `drizzle/migrations/`.
+  </Step>
+  
+  <Step title="Apply migrations">
+    Run migrations against Turso:
+    ```bash
+    pnpm db:migrate
+    ```
+    
+    <Note>
+      This requires a valid `TURSO_AUTH_TOKEN` with write permissions. If you get a 401 error, regenerate the token from the Turso dashboard.
+    </Note>
+  </Step>
+</Steps>
+
+## BetterAuth Configuration
+
+The auth instance is configured in `lib/auth/betterauth.ts`.
+
+### Core Configuration
+
+From `lib/auth/betterauth.ts:21`:
+
+```typescript
+import { betterAuth } from "better-auth";
+import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import * as schema from "../../drizzle/schema";
+import { db } from "../db";
+
+export const auth = betterAuth({
+  secret: process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET,
+  basePath: "/api/auth",
+  database: drizzleAdapter(db, {
+    provider: "sqlite",
+    schema,
+  }),
+  session: {
+    cookieCache: {
+      enabled: true,
+      maxAge: 60 * 5, // 5 minutes
+    },
+  },
+  socialProviders: {
+    github: {
+      clientId: process.env.GH_CLIENT_ID,
+      clientSecret: process.env.GH_CLIENT_SECRET,
+    },
+  },
+  onAPIError: {
+    errorURL: "/auth/error",
+  },
+});
+```
+
+### Session Caching
+
+Sessions are cached in cookies for 5 minutes to reduce database queries:
+
+```typescript
+session: {
+  cookieCache: {
+    enabled: true,
+    maxAge: 60 * 5, // 5 minutes
+  },
+}
+```
+
+### Error Handling
+
+Authentication errors redirect to `/auth/error`:
+
+```typescript
+onAPIError: {
+  errorURL: "/auth/error",
+}
+```
+
+## Session Helpers
+
+The auth module exports helper functions for retrieving session data.
+
+### API Routes
+
+Use `getApiSession` in API routes:
+
+```typescript
+import { getApiSession } from "@/lib/auth";
+import { NextRequest } from "next/server";
+
+export async function GET(request: NextRequest) {
+  const session = await getApiSession(request);
+  
+  if (!session) {
+    return new Response("Unauthorized", { status: 401 });
+  }
+  
+  return Response.json({ user: session.user });
+}
+```
+
+### Server Components
+
+Use `getServerSession` in Server Components:
+
+```typescript
+import { getServerSession } from "@/lib/auth";
+
+export default async function ProfilePage() {
+  const session = await getServerSession();
+  
+  if (!session) {
+    redirect("/auth/sign-in");
+  }
+  
+  return <div>Welcome, {session.user.name}</div>;
+}
+```
+
+## Access Control
+
+The `GH_ALLOWED_LOGIN` environment variable restricts access to a specific GitHub username.
+
+### Check User Access
+
+From `lib/auth/betterauth.ts:103`:
+
+```typescript
+export function isAllowedUser(session: SessionLike): boolean {
+  if (INSECURE_ALLOW_ALL) return true;
+  if (!ALLOWED_LOGIN) return false;
+  
+  const { username, email } = getUserCandidates(session);
+  return username === ALLOWED_LOGIN || email === ALLOWED_LOGIN;
+}
+```
+
+### Require Authenticated User
+
+Use `requireApiUser` to protect API routes:
+
+```typescript
+import { requireApiUser } from "@/lib/auth";
+
+export async function POST(request: NextRequest) {
+  const authRes = await requireApiUser(request);
+  
+  if (!authRes.ok) {
+    return Response.json(
+      { error: authRes.error },
+      { status: authRes.status }
+    );
+  }
+  
+  // authRes.session contains the user session
+  const { session } = authRes;
+  
+  // Proceed with authorized logic
+}
+```
+
+From `lib/auth/betterauth.ts:110`:
+
+```typescript
+export async function requireApiUser(request: NextRequest) {
+  const session = await getApiSession(request);
+  
+  if (!session) {
+    return { ok: false, status: 401, error: "Unauthorized" };
+  }
+  
+  if (!isAllowedUser(session)) {
+    return { ok: false, status: 403, error: "Access denied" };
+  }
+  
+  return { ok: true, session };
+}
+```
+
+## Turso Database Client
+
+The database client is configured in `lib/db.ts`.
+
+From `lib/db.ts:25`:
+
+```typescript
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
+
+const tursoUrl = requireEnv("TURSO_DATABASE_URL", "TURSO_DB_URL");
+const tursoAuthToken = optionalEnv("TURSO_DB_TOKEN", "TURSO_AUTH_TOKEN");
+
+export function getTursoClient() {
+  if (!client) {
+    client = createClient({
+      url: tursoUrl,
+      authToken: tursoAuthToken,
+    });
+  }
+  return client;
+}
+
+export const db = drizzle(getTursoClient());
+```
+
+<Note>
+  The database client supports both `TURSO_DATABASE_URL` and `TURSO_DB_URL` for flexibility. Use whichever naming convention you prefer.
+</Note>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="GitHub OAuth" icon="github" href="/auth/github-oauth">
+    Configure GitHub OAuth provider
+  </Card>
+  <Card title="S3 Configuration" icon="cloud" href="/storage/s3-configuration">
+    Set up S3 storage with Tigris
+  </Card>
+</CardGroup>

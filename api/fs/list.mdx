@@ -1,0 +1,135 @@
+---
+title: 'List Directory Contents'
+api: 'GET /api/fs/list'
+description: 'List files and folders within a directory'
+---
+
+## Endpoint
+
+```
+GET /api/fs/list
+```
+
+Lists all markdown files and subdirectories within a specified directory prefix. Returns paginated results with support for continuation tokens.
+
+## Query Parameters
+
+<ParamField query="prefix" type="string" default="">
+  The directory path to list contents from, relative to the vault root. Must not start with `/` or contain `..` path segments. Defaults to root directory if omitted.
+  
+  **Validation:**
+  - Must be relative (no leading `/`)
+  - Must use `/` as separator (not `\`)
+  - Cannot contain `..` segments
+  - Automatically normalized to end with `/`
+</ParamField>
+
+<ParamField query="continuationToken" type="string" optional>
+  Pagination token from a previous response's `nextContinuationToken`. Used to retrieve the next page of results.
+</ParamField>
+
+## Response
+
+<ResponseField name="prefix" type="string">
+  The normalized prefix that was queried (always ends with `/` or is empty string for root).
+</ResponseField>
+
+<ResponseField name="folders" type="string[]">
+  Array of folder names (relative to the queried prefix), sorted alphabetically. Each folder name ends with `/`.
+</ResponseField>
+
+<ResponseField name="files" type="object[]">
+  Array of markdown file objects found in the directory. Only files with `.md` extension are included.
+  
+  <Expandable title="File object properties">
+    <ResponseField name="key" type="string">
+      The file path relative to the vault root.
+    </ResponseField>
+    
+    <ResponseField name="etag" type="string" optional>
+      The ETag identifier for the file version.
+    </ResponseField>
+    
+    <ResponseField name="lastModified" type="string" optional>
+      ISO 8601 timestamp of when the file was last modified.
+    </ResponseField>
+    
+    <ResponseField name="size" type="number" optional>
+      File size in bytes.
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="nextContinuationToken" type="string | null">
+  Continuation token for retrieving the next page of results. `null` if there are no more results.
+</ResponseField>
+
+## Examples
+
+### List root directory
+
+```bash
+curl -X GET "https://your-app.com/api/fs/list"
+```
+
+### List specific folder
+
+```bash
+curl -X GET "https://your-app.com/api/fs/list?prefix=projects/2024"
+```
+
+### List with pagination
+
+```bash
+curl -X GET "https://your-app.com/api/fs/list?prefix=docs/&continuationToken=abc123"
+```
+
+### Using fetch
+
+```javascript
+const response = await fetch('/api/fs/list?prefix=notes/');
+const data = await response.json();
+
+console.log(data.folders); // ['archive/', 'drafts/']
+console.log(data.files);   // [{ key: 'notes/todo.md', etag: '...', ... }]
+```
+
+## Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong.
+</ResponseField>
+
+### 400 Bad Request
+
+Returned when the prefix parameter is invalid:
+
+```json
+{
+  "error": "Prefix must be relative to the vault root"
+}
+```
+
+Other validation errors:
+- `"Prefix must use '/' as a separator"` - Backslashes are not allowed
+- `"Prefix cannot contain '..'"` - Path traversal attempts are blocked
+
+### 401 Unauthorized
+
+Returned when authentication fails:
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+### 500 Internal Server Error
+
+Returned when S3 operations fail:
+
+```json
+{
+  "error": "Failed to list folder contents"
+}
+```
