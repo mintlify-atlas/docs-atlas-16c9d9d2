@@ -1,0 +1,110 @@
+{
+  "projectType": "saas",
+  "projectName": "Personal Notes",
+  "projectDescription": "A Next.js-powered markdown note-taking application with S3 storage, AI assistance, and rich editing capabilities.",
+  "theme": "almond",
+  "primaryColor": "#3B82F6",
+  "lightColor": "#60A5FA",
+  "darkColor": "#2563EB",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart",
+              "installation"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/file-management",
+              "features/markdown-editor",
+              "features/ai-assistance",
+              "features/search-navigation"
+            ]
+          },
+          {
+            "group": "Storage & Sync",
+            "pages": [
+              "storage/s3-configuration",
+              "storage/file-tree-manifest",
+              "storage/caching-strategy"
+            ]
+          },
+          {
+            "group": "Authentication",
+            "pages": [
+              "auth/setup",
+              "auth/github-oauth"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/environment-variables",
+              "deployment/database-setup",
+              "deployment/production"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Filesystem API",
+            "pages": [
+              "api/fs/list",
+              "api/fs/file",
+              "api/fs/mkdir",
+              "api/fs/move",
+              "api/fs/delete"
+            ]
+          },
+          {
+            "group": "Tree API",
+            "pages": [
+              "api/tree/get",
+              "api/tree/refresh"
+            ]
+          },
+          {
+            "group": "AI API",
+            "pages": [
+              "api/ai/chat",
+              "api/ai/action"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "S3-backed markdown vault storage with Tigris integration",
+    "Rich markdown editing with BlockNote and preview capabilities",
+    "AI-powered chat and content actions using Vercel AI SDK",
+    "File tree navigation with search and context menu operations",
+    "GitHub OAuth authentication via BetterAuth",
+    "Redis-backed caching for performance optimization",
+    "PWA support for offline-capable installable app",
+    "Streamdown-based markdown rendering with Mermaid diagram support"
+  ],
+  "publicApiSurface": [
+    "GET /api/fs/list - List files and folders",
+    "GET /api/fs/file - Retrieve file content",
+    "PUT /api/fs/file - Update file content",
+    "POST /api/fs/mkdir - Create folder",
+    "POST /api/fs/move - Move/rename file",
+    "DELETE /api/fs/file - Delete file",
+    "DELETE /api/fs/folder - Delete folder",
+    "GET /api/tree - Get file tree manifest",
+    "POST /api/tree/refresh - Rebuild tree manifest",
+    "POST /api/ai/chat - AI chat with context",
+    "POST /api/ai/action - AI content actions (improve, summarize, expand)"
+  ]
+}
