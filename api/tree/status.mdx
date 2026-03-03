@@ -1,0 +1,185 @@
+---
+title: "Tree Refresh Status"
+description: "Poll the status of tree manifest refresh operations"
+---
+
+## GET /api/tree/status
+
+Returns the current status of the file tree manifest. This endpoint is used to check if a manifest refresh is in progress or has completed.
+
+Unlike `/api/tree/refresh`, this is a lightweight status check that doesn't trigger any rebuild operations.
+
+### Response
+
+<ResponseField name="jobId" type="string | null" required>
+  Job identifier for ongoing refresh operation. Always `null` for current implementation (synchronous refresh).
+</ResponseField>
+
+<ResponseField name="status" type="string" required>
+  Current status: `"completed"` (manifest is ready)
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string" required>
+  ISO 8601 timestamp of last manifest update
+</ResponseField>
+
+<ResponseField name="etag" type="string | null" required>
+  ETag of current manifest for cache validation
+</ResponseField>
+
+<ResponseField name="metadata" type="object" required>
+  Manifest metadata snapshot
+
+  <Expandable title="metadata properties">
+    <ResponseField name="version" type="string">
+      Manifest schema version
+    </ResponseField>
+
+    <ResponseField name="generatedAt" type="string">
+      ISO 8601 timestamp of manifest generation
+    </ResponseField>
+
+    <ResponseField name="totalFiles" type="number">
+      Total number of files in the tree
+    </ResponseField>
+
+    <ResponseField name="totalFolders" type="number">
+      Total number of folders in the tree
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="error" type="string | null" required>
+  Error message if manifest is unavailable, otherwise `null`
+</ResponseField>
+
+### Example Request
+
+```bash cURL
+curl https://your-domain.com/api/tree/status \
+  -H "Cookie: better_auth.session_token=..."
+```
+
+```javascript JavaScript
+// Poll status after triggering refresh
+async function pollRefreshStatus() {
+  const response = await fetch('/api/tree/status');
+  const status = await response.json();
+  
+  console.log('Last updated:', status.updatedAt);
+  console.log('Files:', status.metadata.totalFiles);
+  console.log('Folders:', status.metadata.totalFolders);
+  
+  return status;
+}
+```
+
+### Example Response
+
+```json
+{
+  "jobId": null,
+  "status": "completed",
+  "updatedAt": "2024-03-15T10:30:00.000Z",
+  "etag": "abc123def456",
+  "metadata": {
+    "version": "1.0.0",
+    "generatedAt": "2024-03-15T10:30:00.000Z",
+    "totalFiles": 42,
+    "totalFolders": 8
+  },
+  "error": null
+}
+```
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Polling after refresh">
+    After calling `/api/tree/refresh`, poll this endpoint to determine when the new manifest is ready:
+
+    ```javascript
+    async function refreshAndPoll() {
+      // Trigger refresh
+      await fetch('/api/tree/refresh', { method: 'POST' });
+      
+      // Poll until complete (current implementation is synchronous, so one check is enough)
+      const status = await fetch('/api/tree/status').then(r => r.json());
+      
+      if (status.status === 'completed') {
+        console.log('Manifest updated at', status.updatedAt);
+        // Reload tree UI
+      }
+    }
+    ```
+  </Accordion>
+
+  <Accordion title="Display last update time">
+    Show users when the file tree was last refreshed:
+
+    ```javascript
+    const status = await fetch('/api/tree/status').then(r => r.json());
+    const lastUpdate = new Date(status.updatedAt);
+    console.log('Tree last updated:', lastUpdate.toLocaleString());
+    ```
+  </Accordion>
+
+  <Accordion title="Show file/folder counts">
+    Display tree statistics in the UI:
+
+    ```javascript
+    const status = await fetch('/api/tree/status').then(r => r.json());
+    console.log(`${status.metadata.totalFiles} files in ${status.metadata.totalFolders} folders`);
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Error Handling
+
+If the manifest is unavailable, the endpoint returns:
+
+```json
+{
+  "error": "Tree manifest unavailable"
+}
+```
+
+With HTTP status code `503 Service Unavailable`.
+
+This can occur if:
+- No manifest has been built yet
+- Redis and S3 sources are both unavailable
+- Manifest schema validation failed
+
+## Cache Headers
+
+The response includes:
+```
+Cache-Control: no-store
+```
+
+This ensures you always get the latest status without browser caching.
+
+## Implementation Notes
+
+From `app/api/tree/status/route.ts`:
+
+- The endpoint loads the manifest from cache (Redis → S3)
+- Returns immediately with current state (no async jobs)
+- `jobId` is always `null` in the current implementation
+- Status is always `"completed"` if manifest exists
+
+<Info>
+The current implementation performs synchronous manifest refresh in `/api/tree/refresh`. Future versions may support async background jobs, at which point `jobId` and status polling will be meaningful.
+</Info>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Get Tree" icon="sitemap" href="/api/tree/get">
+    Retrieve full manifest
+  </Card>
+  <Card title="Refresh Tree" icon="arrows-rotate" href="/api/tree/refresh">
+    Trigger manifest rebuild
+  </Card>
+</CardGroup>

@@ -1,0 +1,162 @@
+---
+title: "File Metadata"
+description: "Get and update file metadata including public sharing status"
+---
+
+## GET /api/fs/meta
+
+Retrieves metadata for a file, including its public sharing status.
+
+### Query Parameters
+
+<ParamField query="key" type="string" required>
+  The file path relative to the vault root (e.g., `notes/readme.md`)
+</ParamField>
+
+### Response
+
+<ResponseField name="public" type="boolean" required>
+  Whether the file is publicly accessible via `/api/public/file`
+</ResponseField>
+
+### Example Request
+
+```bash cURL
+curl "https://your-domain.com/api/fs/meta?key=notes/readme.md" \
+  -H "Cookie: better_auth.session_token=..."
+```
+
+```javascript JavaScript
+const response = await fetch('/api/fs/meta?key=notes/readme.md');
+const meta = await response.json();
+
+if (meta.public) {
+  console.log('File is publicly shared');
+}
+```
+
+### Example Response
+
+```json
+{
+  "public": true
+}
+```
+
+---
+
+## PUT /api/fs/meta
+
+Updates file metadata. Currently supports toggling public sharing status.
+
+### Request Body
+
+<ParamField body="key" type="string" required>
+  The file path relative to the vault root
+</ParamField>
+
+<ParamField body="public" type="boolean" required>
+  Whether to make the file publicly accessible
+</ParamField>
+
+### Response
+
+<ResponseField name="public" type="boolean" required>
+  The updated public status
+</ResponseField>
+
+### Example Request
+
+```bash cURL
+curl -X PUT https://your-domain.com/api/fs/meta \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better_auth.session_token=..." \
+  -d '{
+    "key": "notes/readme.md",
+    "public": true
+  }'
+```
+
+```javascript JavaScript
+const response = await fetch('/api/fs/meta', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    key: 'notes/readme.md',
+    public: true
+  })
+});
+
+const result = await response.json();
+console.log('File is now', result.public ? 'public' : 'private');
+```
+
+### Example Response
+
+```json
+{
+  "public": true
+}
+```
+
+## Public File Access
+
+When a file is marked as public (`public: true`), it becomes accessible via:
+
+```
+GET /api/public/file?key=notes/readme.md
+```
+
+This endpoint:
+- Does **not** require authentication
+- Returns markdown content with appropriate cache headers
+- Supports conditional requests (ETag, If-None-Match)
+- Returns 404 if the file is not marked as public
+
+### Public URL Example
+
+```javascript
+// Share this URL with anyone
+const publicUrl = `${window.location.origin}/api/public/file?key=${encodeURIComponent(fileKey)}`;
+
+// Or use the /p/ route for a rendered view
+const publicPage = `${window.location.origin}/p/${encodePath(fileKey)}`;
+```
+
+## Use Cases
+
+<AccordionGroup>
+  <Accordion title="Share notes with team members">
+    Mark specific notes as public to share documentation, meeting notes, or knowledge base articles with team members without requiring authentication.
+  </Accordion>
+
+  <Accordion title="Embed in external sites">
+    Public files can be embedded in external websites or documentation sites using iframe or direct content fetching.
+  </Accordion>
+
+  <Accordion title="Generate public links">
+    Create shareable links for specific notes that can be accessed by anyone with the URL.
+  </Accordion>
+</AccordionGroup>
+
+## Security Notes
+
+<Warning>
+Public files are accessible to anyone with the URL. Do not mark files containing sensitive information as public.
+</Warning>
+
+- Public status is stored in Redis with the key pattern `file-meta:{key}`
+- Setting `public: false` removes the metadata entry entirely
+- The `/api/public/file` endpoint verifies public status before serving content
+- Private files (default) return 404 on public access attempts
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Get File" icon="file" href="/api/fs/file">
+    Retrieve authenticated file content
+  </Card>
+  <Card title="Update File" icon="pen-to-square" href="/api/fs/file">
+    Update file content
+  </Card>
+</CardGroup>

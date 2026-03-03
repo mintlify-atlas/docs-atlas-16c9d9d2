@@ -1,0 +1,132 @@
+---
+title: "Get AI Models"
+description: "Retrieve available AI models from the gateway"
+---
+
+## GET /api/ai/models
+
+Fetches the list of available AI language models from the AI Gateway. Returns model metadata including context windows, max tokens, and supported features.
+
+The endpoint attempts to fetch models from the AI Gateway and falls back to a hardcoded list if the gateway is unavailable.
+
+### Response
+
+<ResponseField name="defaultModel" type="string" required>
+  The default model ID to use for chat (from `AI_CHAT_MODEL` or `AI_MODEL` env var)
+</ResponseField>
+
+<ResponseField name="source" type="string" required>
+  Source of the model list: `"gateway"` or `"fallback"`
+</ResponseField>
+
+<ResponseField name="models" type="array" required>
+  Array of available language models
+
+  <Expandable title="Model object">
+    <ResponseField name="id" type="string" required>
+      Model identifier in format `provider/model-name` (e.g., `google/gemini-2.0-flash-exp`)
+    </ResponseField>
+
+    <ResponseField name="name" type="string" required>
+      Human-readable model name
+    </ResponseField>
+
+    <ResponseField name="provider" type="string" required>
+      Model provider (e.g., `google`, `openai`, `anthropic`)
+    </ResponseField>
+
+    <ResponseField name="type" type="string" required>
+      Model type, always `"language"` for chat models
+    </ResponseField>
+
+    <ResponseField name="contextWindow" type="number">
+      Maximum context window size in tokens (null if unknown)
+    </ResponseField>
+
+    <ResponseField name="maxTokens" type="number">
+      Maximum output tokens (null if unknown)
+    </ResponseField>
+
+    <ResponseField name="description" type="string">
+      Model description from the gateway
+    </ResponseField>
+
+    <ResponseField name="tags" type="array">
+      Model capability tags (e.g., `["chat", "vision", "function-calling"]`)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash cURL
+curl https://your-domain.com/api/ai/models \
+  -H "Cookie: better_auth.session_token=..."
+```
+
+```javascript JavaScript
+const response = await fetch('/api/ai/models');
+const data = await response.json();
+
+console.log('Default model:', data.defaultModel);
+console.log('Available models:', data.models.length);
+```
+
+### Example Response
+
+```json
+{
+  "defaultModel": "google/gemini-2.0-flash-exp",
+  "source": "gateway",
+  "models": [
+    {
+      "id": "google/gemini-2.0-flash-exp",
+      "name": "Gemini 2.0 Flash Exp",
+      "provider": "google",
+      "type": "language",
+      "contextWindow": 1000000,
+      "maxTokens": 8192,
+      "description": "Fast and efficient model for chat",
+      "tags": ["chat", "vision"]
+    },
+    {
+      "id": "openai/gpt-4o",
+      "name": "GPT 4o",
+      "provider": "openai",
+      "type": "language",
+      "contextWindow": 128000,
+      "maxTokens": 4096,
+      "description": "OpenAI's most capable model",
+      "tags": ["chat", "vision", "function-calling"]
+    }
+  ]
+}
+```
+
+## Caching
+
+The endpoint returns cache headers:
+- `Cache-Control: public, max-age=60, s-maxage=300, stale-while-revalidate=120`
+- Models are revalidated every 5 minutes
+
+## Fallback Behavior
+
+If the AI Gateway is unavailable or returns an error, the endpoint:
+1. Returns `source: "fallback"`
+2. Provides a hardcoded list of known models from `lib/ai/models.ts`
+3. Still returns a 200 status code
+
+<Info>
+The model list is used by the AI chat sidebar to populate the model selector. The default model is automatically selected when the chat interface loads.
+</Info>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="AI Chat" icon="messages" href="/api/ai/chat">
+    Use selected models for chat
+  </Card>
+  <Card title="AI Actions" icon="wand-magic-sparkles" href="/api/ai/action">
+    Content improvement actions
+  </Card>
+</CardGroup>

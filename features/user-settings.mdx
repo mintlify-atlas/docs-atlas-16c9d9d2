@@ -1,0 +1,238 @@
+---
+title: "User Settings"
+description: "Customize your Personal Notes experience with user preferences"
+---
+
+Personal Notes provides user-specific settings to customize your editing experience, appearance, and privacy preferences. Settings are stored per-user in Redis and persist across sessions.
+
+## Accessing Settings
+
+Open the Settings modal using any of these methods:
+
+- **Keyboard shortcut**: `Cmd/Ctrl + ,`
+- **Sidebar icon**: Click the Settings icon in the application sidebar
+- **Component**: Settings modal from `components/settings/index.tsx`
+
+## Settings Categories
+
+### Editor Preferences
+
+Control how the markdown editor behaves by default.
+
+<ParamField path="editor.defaultMode" type="string" default="preview">
+  Default editor mode for opening files
+  
+  **Options:**
+  - `preview` - Open files in rendered markdown view (read-only)
+  - `edit` - Open files in BlockNote editor for immediate editing
+  
+  <Note>
+  You can always toggle between modes using the Edit/Preview button in the header, regardless of this setting.
+  </Note>
+</ParamField>
+
+#### Use Cases
+
+**Preview Mode (Default):**
+- Best for reading and reviewing notes
+- Safer for preventing accidental edits
+- Renders markdown immediately
+
+**Edit Mode:**
+- Best for active writing sessions
+- Skip the toggle step when you know you'll be editing
+- Immediate access to the block editor
+
+### Appearance Preferences
+
+Customize the visual layout of the editor.
+
+<ParamField path="appearance.centeredLayout" type="boolean" default="false">
+  Enable centered content layout with max-width constraint
+  
+  **When enabled:**
+  - Content is centered on the page
+  - Max-width constraint for comfortable reading
+  - Better for long-form writing and reading
+  
+  **When disabled (default):**
+  - Content uses full available width
+  - Better for wide code blocks or tables
+  - More screen real estate for editing
+</ParamField>
+
+<Tabs>
+  <Tab title="Centered Layout">
+    ```
+    ┌─────────────────────────────────┐
+    │                                 │
+    │    ┌─────────────────┐         │
+    │    │   Content       │         │
+    │    │   (max-width)   │         │
+    │    └─────────────────┘         │
+    │                                 │
+    └─────────────────────────────────┘
+    ```
+    Focused, distraction-free writing
+  </Tab>
+  <Tab title="Full Width">
+    ```
+    ┌─────────────────────────────────┐
+    │                                 │
+    │  Content (full width)           │
+    │                                 │
+    └─────────────────────────────────┘
+    ```
+    Maximum space for code and tables
+  </Tab>
+</Tabs>
+
+### Privacy Preferences
+
+Control how the application handles your session data.
+
+<ParamField path="privacy.rememberLastOpenedFile" type="boolean" default="true">
+  Remember and automatically reopen the last file you were working on
+  
+  **When enabled (default):**
+  - Automatically opens your last active file
+  - Maintains context between sessions
+  - Convenient for ongoing work
+  
+  **When disabled:**
+  - Always starts with no file selected
+  - Clean slate each session
+  - Better for shared devices or privacy-sensitive environments
+</ParamField>
+
+<Warning>
+If you use Personal Notes on a shared device, consider disabling this setting to prevent others from seeing your recent work.
+</Warning>
+
+## Settings Storage
+
+Settings are stored in Redis with the key pattern:
+
+```
+user:settings:{userId}
+```
+
+**Storage characteristics:**
+- Per-user: Each user has their own independent settings
+- Persistent: Settings have no expiration and persist indefinitely
+- Merged: New settings are deep-merged with existing values
+- Defaults: Missing fields automatically use default values
+
+## Settings API
+
+Settings are managed through REST endpoints:
+
+<CardGroup cols={2}>
+  <Card title="GET /api/settings" icon="download" href="/api/settings">
+    Retrieve current user settings
+  </Card>
+  <Card title="PUT /api/settings" icon="upload" href="/api/settings">
+    Update user settings
+  </Card>
+</CardGroup>
+
+### Example: Update Settings Programmatically
+
+```javascript
+// Update multiple settings at once
+const response = await fetch('/api/settings', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    editor: {
+      defaultMode: 'edit'
+    },
+    appearance: {
+      centeredLayout: true
+    }
+  })
+});
+
+const updatedSettings = await response.json();
+console.log('Settings updated:', updatedSettings);
+```
+
+## Default Values
+
+If you haven't customized settings, these defaults apply:
+
+```typescript
+{
+  editor: {
+    defaultMode: "preview"
+  },
+  appearance: {
+    centeredLayout: false
+  },
+  privacy: {
+    rememberLastOpenedFile: true
+  }
+}
+```
+
+From `app/api/settings/route.ts:19-29`
+
+## Settings UI Components
+
+The settings modal provides an intuitive interface for managing preferences:
+
+**Features:**
+- Toggle switches for boolean settings
+- Radio buttons for mode selection
+- Immediate save on change (no "Save" button required)
+- Visual feedback for current settings
+- Reset to defaults option
+
+**Implementation:**
+- Component: `components/settings/index.tsx`
+- State management: React hooks with optimistic updates
+- Validation: Client-side validation before API calls
+
+## Keyboard Shortcut
+
+<Tip>
+Press `Cmd/Ctrl + ,` from anywhere in the application to quickly access settings.
+</Tip>
+
+This shortcut is registered in the global keyboard handler and works regardless of which component has focus.
+
+## Future Settings
+
+Planned settings for future releases:
+
+<AccordionGroup>
+  <Accordion title="Editor preferences">
+    - Font family and size
+    - Line height and spacing
+    - Syntax highlighting theme
+    - Vim/Emacs keybindings
+  </Accordion>
+
+  <Accordion title="Appearance">
+    - Theme selection (light/dark/auto)
+    - Sidebar position (left/right)
+    - Tree indentation level
+  </Accordion>
+
+  <Accordion title="Behavior">
+    - Auto-save interval
+    - Confirm before delete
+    - Show hidden files
+  </Accordion>
+</AccordionGroup>
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Markdown Editor" icon="pen-to-square" href="/features/markdown-editor">
+    Learn about editor modes and features
+  </Card>
+  <Card title="Authentication" icon="lock" href="/auth/setup">
+    User authentication setup
+  </Card>
+</CardGroup>

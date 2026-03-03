@@ -1,0 +1,244 @@
+---
+title: "User Settings"
+description: "Manage user preferences and application settings"
+---
+
+## GET /api/settings
+
+Retrieves the current user's application settings. Returns default values merged with any stored preferences.
+
+### Response
+
+<ResponseField name="editor" type="object" required>
+  Editor-related preferences
+  
+  <Expandable title="editor properties">
+    <ResponseField name="defaultMode" type="string" required>
+      Default editor mode: `"preview"` or `"edit"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="appearance" type="object" required>
+  Appearance preferences
+  
+  <Expandable title="appearance properties">
+    <ResponseField name="centeredLayout" type="boolean" required>
+      Whether to use centered layout for editor content
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="privacy" type="object" required>
+  Privacy-related preferences
+  
+  <Expandable title="privacy properties">
+    <ResponseField name="rememberLastOpenedFile" type="boolean" required>
+      Whether to remember and reopen the last file on session start
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Default Values
+
+From `app/api/settings/route.ts`:
+
+```typescript
+{
+  editor: {
+    defaultMode: "preview"
+  },
+  appearance: {
+    centeredLayout: false
+  },
+  privacy: {
+    rememberLastOpenedFile: true
+  }
+}
+```
+
+### Example Request
+
+```bash cURL
+curl https://your-domain.com/api/settings \
+  -H "Cookie: better_auth.session_token=..."
+```
+
+```javascript JavaScript
+const response = await fetch('/api/settings');
+const settings = await response.json();
+
+console.log('Default editor mode:', settings.editor.defaultMode);
+console.log('Centered layout:', settings.appearance.centeredLayout);
+```
+
+### Example Response
+
+```json
+{
+  "editor": {
+    "defaultMode": "preview"
+  },
+  "appearance": {
+    "centeredLayout": false
+  },
+  "privacy": {
+    "rememberLastOpenedFile": true
+  }
+}
+```
+
+---
+
+## PUT /api/settings
+
+Updates user settings. Performs a deep merge with existing settings, so you only need to send the fields you want to change.
+
+### Request Body
+
+<ParamField body="editor" type="object">
+  Editor preferences to update
+  
+  <Expandable title="editor properties">
+    <ParamField body="defaultMode" type="string">
+      Default mode: `"preview"` or `"edit"`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="appearance" type="object">
+  Appearance preferences to update
+  
+  <Expandable title="appearance properties">
+    <ParamField body="centeredLayout" type="boolean">
+      Enable centered layout
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="privacy" type="object">
+  Privacy preferences to update
+  
+  <Expandable title="privacy properties">
+    <ParamField body="rememberLastOpenedFile" type="boolean">
+      Remember last opened file
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+### Response
+
+Returns the complete updated settings object with all fields.
+
+### Example Request
+
+```bash cURL
+curl -X PUT https://your-domain.com/api/settings \
+  -H "Content-Type: application/json" \
+  -H "Cookie: better_auth.session_token=..." \
+  -d '{
+    "editor": {
+      "defaultMode": "edit"
+    },
+    "appearance": {
+      "centeredLayout": true
+    }
+  }'
+```
+
+```javascript JavaScript
+// Update only specific settings
+const response = await fetch('/api/settings', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({
+    editor: {
+      defaultMode: 'edit'
+    },
+    appearance: {
+      centeredLayout: true
+    }
+  })
+});
+
+const updated = await response.json();
+console.log('Updated settings:', updated);
+```
+
+### Example Response
+
+```json
+{
+  "editor": {
+    "defaultMode": "edit"
+  },
+  "appearance": {
+    "centeredLayout": true
+  },
+  "privacy": {
+    "rememberLastOpenedFile": true
+  }
+}
+```
+
+## Storage
+
+Settings are stored in Redis with the key pattern:
+```
+user:settings:{userId}
+```
+
+Settings persist indefinitely (no expiration) and are specific to each user account.
+
+## Setting Details
+
+### Editor Mode
+
+Controls whether files open in preview or edit mode by default:
+
+- **Preview mode**: Rendered markdown view (read-only)
+- **Edit mode**: BlockNote editor for content editing
+
+Users can toggle between modes using the Edit/Preview button regardless of the default.
+
+### Centered Layout
+
+When enabled:
+- Editor content is centered with max-width constraint
+- Provides a more focused writing experience
+- Better for reading long-form content
+
+When disabled (default):
+- Content uses full available width
+- Better for wide code blocks or tables
+
+### Remember Last File
+
+Controls whether the application reopens the last active file when starting a new session:
+
+- **Enabled (default)**: Automatically opens the last file you were working on
+- **Disabled**: Always starts with no file selected
+
+<Info>
+This setting respects user privacy preferences. Disable if using shared devices or prefer a clean slate each session.
+</Info>
+
+## UI Integration
+
+The settings are managed through the Settings modal accessible via:
+- Keyboard shortcut: `Cmd/Ctrl + ,`
+- Settings icon in the application sidebar
+- Component: `components/settings/index.tsx`
+
+The UI provides toggle switches and radio buttons for each setting, with changes saved immediately via the PUT endpoint.
+
+## Related
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="lock" href="/auth/setup">
+    User authentication setup
+  </Card>
+  <Card title="Editor Features" icon="pen-to-square" href="/features/markdown-editor">
+    Markdown editor documentation
+  </Card>
+</CardGroup>
